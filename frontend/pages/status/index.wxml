@@ -1,0 +1,36 @@
+<view class="container">
+  <view class="header">
+    <text class="title">{{activityName}}</text>
+    <text class="subtitle">排队状态</text>
+  </view>
+  
+  <view class="status-card">
+    <view class="status-item">
+      <text class="label">当前叫号</text>
+      <text class="value">{{currentNumber}}</text>
+    </view>
+    <view class="status-item">
+      <text class="label">您的号码</text>
+      <text class="value">{{userNumber || '未绑定'}}</text>
+    </view>
+    <view class="status-item">
+      <text class="label">前方还有</text>
+      <text class="value">{{queueCount}}</text>
+    </view>
+    <view class="status-item">
+      <text class="label">预计等待</text>
+      <text class="value">{{estimatedTime}} 分钟</text>
+    </view>
+  </view>
+  
+  <view class="actions">
+    <button class="btn primary-btn" bindtap="refreshStatus">刷新状态</button>
+  </view>
+  
+  <view class="tips">
+    <text class="tip-title">温馨提示</text>
+    <text class="tip-content">• 请保持手机信号畅通</text>
+    <text class="tip-content">• 叫号后请及时前往</text>
+    <text class="tip-content">• 过号需要重新排队</text>
+  </view>
+</view>

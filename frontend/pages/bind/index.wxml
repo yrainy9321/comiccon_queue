@@ -1,0 +1,21 @@
+<view class="container">
+  <view class="header">
+    <text class="title">绑定手环</text>
+    <text class="subtitle">请扫描工作人员提供的二维码</text>
+  </view>
+  
+  <view class="scan-area">
+    <view class="scan-icon">📷</view>
+    <text class="scan-text">点击下方按钮扫码绑定</text>
+  </view>
+  
+  <button class="btn scan-btn" bindtap="scanCode">开始扫码</button>
+  
+  <view class="tips">
+    <text class="tip-title">使用说明</text>
+    <text class="tip-content">• 点击"开始扫码"按钮</text>
+    <text class="tip-content">• 对准工作人员提供的二维码</text>
+    <text class="tip-content">• 系统会自动绑定您的手环</text>
+    <text class="tip-content">• 绑定成功后可查看排队状态</text>
+  </view>
+</view>

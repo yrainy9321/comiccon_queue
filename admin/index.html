@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>漫展排队系统管理后台</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 14px; color: #333; background: #f0f2f5; }
+    
+    /* Login Page */
+    .login-container { min-height: 100vh; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+    .login-card { background: #fff; border-radius: 8px; padding: 32px; width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .login-title { text-align: center; font-size: 24px; color: #1890ff; margin-bottom: 24px; font-weight: 600; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #666; }
+    .form-control { width: 100%; padding: 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; transition: all 0.3s; }
+    .form-control:focus { outline: none; border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); }
+    .btn { display: inline-block; padding: 12px 24px; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s; }
+    .btn-primary { background: #1890ff; color: #fff; }
+    .btn-primary:hover { background: #40a9ff; }
+    .btn-primary:active { background: #096dd9; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-danger { background: #ff4d4f; color: #fff; }
+    .btn-danger:hover { background: #ff7875; }
+    .btn-default { background: #fff; color: #666; border: 1px solid #d9d9d9; }
+    .btn-default:hover { background: #f5f5f5; }
+    .btn-small { padding: 6px 12px; font-size: 12px; }
+    .btn-block { width: 100%; }
+    .login-tip { text-align: center; color: #999; font-size: 12px; margin-top: 16px; }
+    
+    /* Layout */
+    .layout { min-height: 100vh; display: flex; flex-direction: column; }
+    .layout-header { background: #1890ff; color: #fff; padding: 0 24px; height: 64px; display: flex; justify-content: space-between; align-items: center; }
+    .layout-header-title { font-size: 18px; font-weight: 600; }
+    .layout-header-right { display: flex; align-items: center; gap: 16px; }
+    .layout-body { display: flex; flex: 1; overflow: hidden; }
+    .layout-sider { width: 200px; background: #001529; color: #fff; }
+    .layout-content { flex: 1; padding: 24px; overflow-y: auto; background: #f0f2f5; }
+    
+    /* Menu */
+    .menu { list-style: none; padding: 16px 0; }
+    .menu-item { padding: 12px 24px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+    .menu-item:hover { background: #002140; }
+    .menu-item.active { background: #1890ff; }
+    .menu-item span { font-size: 14px; }
+    
+    /* Card */
+    .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .card-title { font-size: 18px; font-weight: 600; color: #1f1f1f; }
+    
+    /* Table */
+    .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+    .table th { background: #fafafa; font-weight: 600; color: #666; }
+    .table tr:hover { background: #fafafa; }
+    
+    /* Tag */
+    .tag { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+    .tag-green { background: #f6ffed; color: #52c41a; }
+    .tag-red { background: #fff2f0; color: #ff4d4f; }
+    .tag-blue { background: #e6f7ff; color: #1890ff; }
+    .tag-orange { background: #fff7e6; color: #fa8c16; }
+    
+    /* Form Inline */
+    .form-inline { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+    .form-inline .form-group { margin-bottom: 0; }
+    .form-inline .btn { margin-top: 24px; }
+    
+    /* Select */
+    .form-select { padding: 12px 32px 12px 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; min-width: 120px; background: #fff; cursor: pointer; appearance: none; transition: all 0.3s; }
+    .form-select:focus { outline: none; border-color: #1890ff; box-shadow: 0 0 0 2px rgba(24,144,255,0.2); }
+    .form-select:hover { border-color: #1890ff; }
+    .form-select:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
+    .select-wrapper { position: relative; display: inline-block; }
+    .select-arrow { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #999; pointer-events: none; font-size: 12px; transition: color 0.3s; }
+    .select-wrapper:hover .select-arrow { color: #1890ff; }
+    
+    /* Modal */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+    .modal { background: #fff; border-radius: 8px; width: 480px; max-width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,0.2); }
+    .modal-header { padding: 16px 24px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 16px; font-weight: 600; }
+    .modal-close { width: 24px; height: 24px; display: flex; justify-content: center; align-items: center; cursor: pointer; border-radius: 50%; }
+    .modal-close:hover { background: #f0f0f0; }
+    .modal-body { padding: 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 8px; }
+    
+    /* Message */
+    .message { position: fixed; top: 24px; right: 24px; padding: 12px 24px; border-radius: 4px; color: #fff; font-size: 14px; z-index: 2000; animation: slideIn 0.3s ease; }
+    .message-success { background: #52c41a; }
+    .message-error { background: #ff4d4f; }
+    .message-warning { background: #faad14; }
+    @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    
+    /* Pagination */
+    .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 16px; }
+    .pagination button { padding: 6px 12px; border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; cursor: pointer; }
+    .pagination button:hover { background: #f5f5f5; }
+    .pagination button.active { background: #1890ff; color: #fff; border-color: #1890ff; }
+    .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    /* Textarea */
+    textarea.form-control { resize: vertical; min-height: 80px; }
+    
+    /* Responsive */
+    @media (max-width: 768px) {
+      .layout-sider { display: none; }
+      .layout-content { padding: 12px; }
+      .form-inline { flex-direction: column; align-items: stretch; }
+      .form-inline .btn { margin-top: 8px; }
+      .modal { width: 95%; }
+      .table { font-size: 12px; }
+      .table th, .table td { padding: 8px 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const API_URL = 'http://localhost:3000/api';
+    
+    // Message Toast
+    function showMessage(type, content) {
+      const msg = document.createElement('div');
+      msg.className = `message message-${type}`;
+      msg.textContent = content;
+      document.body.appendChild(msg);
+      setTimeout(() => msg.remove(), 3000);
+    }
+    
+    // Modal Component
+    function createModal(options) {
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.innerHTML = `
+        <div class="modal">
+          <div class="modal-header">
+            <span class="modal-title">${options.title || ''}</span>
+            <span class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</span>
+          </div>
+          <div class="modal-body">${options.body || ''}</div>
+          <div class="modal-footer">
+            ${options.footer || '<button class="btn btn-default" onclick="this.closest(\'.modal-overlay\').remove()">取消</button>'}
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      return modal;
+    }
+    
+    // Confirm Dialog
+    function confirm(options) {
+      const modal = createModal({
+        title: options.title,
+        body: options.content,
+        footer: `<button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
+                 <button class="btn btn-danger" onclick="(this.closest('.modal-overlay').remove(), options.onOk())">确定</button>`
+      });
+    }
+    
+    // Login Page
+    function renderLoginPage(onLogin) {
+      const html = `
+        <div class="login-container">
+          <div class="login-card">
+            <div class="login-title">漫展排队系统</div>
+            <div class="form-group">
+              <label>用户名</label>
+              <input type="text" id="login-username" class="form-control" placeholder="请输入用户名" />
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input type="password" id="login-password" class="form-control" placeholder="请输入密码" />
+            </div>
+            <button id="login-btn" class="btn btn-primary btn-block">登录</button>
+            <div class="login-tip">默认账号：admin / admin123</div>
+          </div>
+        </div>
+      `;
+      document.getElementById('app').innerHTML = html;
+      
+      document.getElementById('login-btn').addEventListener('click', async () => {
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        
+        if (!username || !password) {
+          showMessage('warning', '请输入用户名和密码');
+          return;
+        }
+        
+        const btn = document.getElementById('login-btn');
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+        
+        try {
+          const response = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+          const data = await response.json();
+          
+          if (response.ok) {
+            localStorage.setItem('token', data.token);
+            showMessage('success', '登录成功');
+            onLogin(data.user);
+          } else {
+            showMessage('error', data.error || '登录失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '登录';
+        }
+      });
+      
+      document.getElementById('login-password').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') document.getElementById('login-btn').click();
+      });
+    }
+    
+    // Activity Management
+    function renderActivityManagement() {
+      const html = `
+        <div class="card">
+          <div class="form-inline">
+            <div class="form-group">
+              <label>活动ID</label>
+              <input type="text" id="filter-id" class="form-control" placeholder="请输入ID" style="width: 150px;" />
+            </div>
+            <div class="form-group">
+              <label>活动名称</label>
+              <input type="text" id="filter-name" class="form-control" placeholder="请输入名称" style="width: 200px;" />
+            </div>
+            <div class="form-group">
+              <label>状态</label>
+              <div class="select-wrapper">
+                <select id="filter-status" class="form-select">
+                  <option value="">请选择</option>
+                  <option value="active">启用</option>
+                  <option value="inactive">禁用</option>
+                  <option value="pending">待处理</option>
+                  <option value="deleted">已删除</option>
+                </select>
+                <span class="select-arrow">▼</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>创建人</label>
+              <input type="text" id="filter-createdBy" class="form-control" placeholder="请输入创建人" style="width: 150px;" />
+            </div>
+            <button id="filter-btn" class="btn btn-primary">查询</button>
+            <button id="reset-btn" class="btn btn-default">重置</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">活动管理</span>
+            <button id="add-activity-btn" class="btn btn-primary">+ 添加活动</button>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>状态</th>
+                <th>当前叫号</th>
+                <th>创建人</th>
+                <th>创建时间</th>
+                <th>操作人</th>
+                <th>操作时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="activities-table-body"></tbody>
+          </table>
+          <div id="pagination-container" class="pagination"></div>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      let pagination = { current: 1, pageSize: 10, total: 0 };
+      
+      async function loadActivities() {
+        const filters = {
+          id: document.getElementById('filter-id').value,
+          name: document.getElementById('filter-name').value,
+          status: document.getElementById('filter-status').value,
+          createdBy: document.getElementById('filter-createdBy').value,
+          page: pagination.current,
+          pageSize: pagination.pageSize
+        };
+        
+        const params = new URLSearchParams(filters);
+        try {
+          const response = await fetch(`${API_URL}/activities?${params}`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const data = await response.json();
+          
+          if (response.ok) {
+            renderActivities(data.data || []);
+            pagination.total = data.total || 0;
+            renderPagination();
+          }
+        } catch (error) {
+          showMessage('error', '加载失败');
+        }
+      }
+      
+      function renderActivities(activities) {
+        const tbody = document.getElementById('activities-table-body');
+        tbody.innerHTML = activities.map(activity => {
+          const statusColor = activity.status === 'active' ? 'green' : activity.status === 'deleted' ? 'red' : activity.status === 'pending' ? 'blue' : 'orange';
+          const statusText = activity.status === 'active' ? '启用' : activity.status === 'deleted' ? '已删除' : activity.status === 'pending' ? '待处理' : '禁用';
+          
+          let actions = '';
+          if (activity.status === 'active') {
+            actions += `<button class="btn btn-default btn-small" onclick="updateActivityStatus('${activity._id}', 'inactive')">禁用</button>`;
+          } else if (activity.status === 'inactive' || activity.status === 'pending') {
+            actions += `<button class="btn btn-primary btn-small" onclick="updateActivityStatus('${activity._id}', 'active')">启用</button>`;
+          }
+          if (activity.status !== 'deleted') {
+            actions += `<button class="btn btn-danger btn-small" style="margin-left: 8px;" onclick="deleteActivity('${activity._id}')">删除</button>`;
+          }
+          actions += `<button class="btn btn-default btn-small" style="margin-left: 8px;" onclick="viewActivityLogs(${JSON.stringify(activity)})">日志</button>`;
+          
+          return `
+            <tr>
+              <td>${activity._id}</td>
+              <td>${activity.name}</td>
+              <td><span class="tag tag-${statusColor}">${statusText}</span></td>
+              <td>${activity.currentNumber || 0}</td>
+              <td>${activity.createdBy || '-'}</td>
+              <td>${activity.createdAt ? new Date(activity.createdAt).toLocaleString() : '-'}</td>
+              <td>${activity.updatedBy || '-'}</td>
+              <td>${activity.updatedAt ? new Date(activity.updatedAt).toLocaleString() : '-'}</td>
+              <td>${actions}</td>
+            </tr>
+          `;
+        }).join('');
+        
+        if (activities.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      function renderPagination() {
+        const container = document.getElementById('pagination-container');
+        const totalPages = Math.ceil(pagination.total / pagination.pageSize);
+        
+        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} onclick="pagination.current--; loadActivities()">上一页</button>`;
+        for (let i = 1; i <= totalPages; i++) {
+          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" onclick="pagination.current=${i}; loadActivities()">${i}</button>`;
+        }
+        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} onclick="pagination.current++; loadActivities()">下一页</button>`;
+        
+        container.innerHTML = html;
+      }
+      
+      async function updateActivityStatus(id, status) {
+        try {
+          const response = await fetch(`${API_URL}/activities/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ status })
+          });
+          
+          if (response.ok) {
+            showMessage('success', '状态更新成功');
+            loadActivities();
+          } else {
+            showMessage('error', '更新失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      }
+      
+      function deleteActivity(id) {
+        confirm({
+          title: '确认删除',
+          content: '确定要删除这个活动吗？（逻辑删除，仅管理员可见）',
+          onOk: async () => {
+            try {
+              const response = await fetch(`${API_URL}/activities/${id}`, {
+                method: 'DELETE',
+                headers: { Authorization: localStorage.getItem('token') }
+              });
+              
+              if (response.ok) {
+                showMessage('success', '删除成功');
+                loadActivities();
+              } else {
+                const data = await response.json();
+                showMessage('error', data.error || '删除失败');
+              }
+            } catch (error) {
+              showMessage('error', '网络错误');
+            }
+          }
+        });
+      }
+      
+      function viewActivityLogs(activity) {
+        const logs = activity.operationLogs || [];
+        const logsHtml = logs.length > 0 ? `
+          <table class="table" style="margin-bottom: 0;">
+            <thead>
+              <tr><th>操作人</th><th>操作类型</th><th>操作时间</th><th>详情</th></tr>
+            </thead>
+            <tbody>
+              ${logs.map(log => `<tr>
+                <td>${log.operator}</td>
+                <td>${log.operation}</td>
+                <td>${new Date(log.timestamp).toLocaleString()}</td>
+                <td>${log.detail}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        ` : '<p style="text-align: center; color: #999;">暂无操作日志</p>';
+        
+        createModal({
+          title: `${activity.name} - 操作日志`,
+          body: logsHtml
+        });
+      }
+      
+      document.getElementById('filter-btn').addEventListener('click', () => {
+        pagination.current = 1;
+        loadActivities();
+      });
+      
+      document.getElementById('reset-btn').addEventListener('click', () => {
+        document.getElementById('filter-id').value = '';
+        document.getElementById('filter-name').value = '';
+        document.getElementById('filter-status').value = '';
+        document.getElementById('filter-createdBy').value = '';
+        pagination.current = 1;
+        loadActivities();
+      });
+      
+      document.getElementById('add-activity-btn').addEventListener('click', () => {
+        createModal({
+          title: '添加活动',
+          body: `
+            <div class="form-group">
+              <label>活动名称</label>
+              <input type="text" id="add-name" class="form-control" placeholder="请输入活动名称" />
+            </div>
+            <div class="form-group">
+              <label>活动描述</label>
+              <textarea id="add-description" class="form-control" placeholder="请输入活动描述"></textarea>
+            </div>
+            <div class="form-group">
+              <label>叫号模式</label>
+              <select id="add-mode" class="form-select">
+                <option value="sequential">顺序叫号</option>
+                <option value="manual">手动叫号</option>
+              </select>
+            </div>
+          `,
+          footer: `
+            <button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
+            <button class="btn btn-primary" onclick="submitAddActivity()">确定</button>
+          `
+        });
+      });
+      
+      window.submitAddActivity = async () => {
+        const name = document.getElementById('add-name').value;
+        const description = document.getElementById('add-description').value;
+        const mode = document.getElementById('add-mode').value;
+        
+        if (!name) {
+          showMessage('warning', '请输入活动名称');
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/activities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ name, description, mode })
+          });
+          
+          if (response.ok) {
+            showMessage('success', '创建成功');
+            document.querySelector('.modal-overlay').remove();
+            loadActivities();
+          } else {
+            showMessage('error', '创建失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      };
+      
+      window.updateActivityStatus = updateActivityStatus;
+      window.deleteActivity = deleteActivity;
+      window.viewActivityLogs = viewActivityLogs;
+      
+      loadActivities();
+    }
+    
+    // Bind Management
+    function renderBindManagement() {
+      const html = `
+        <div class="card">
+          <div class="card-title" style="margin-bottom: 16px;">手环绑定</div>
+          <div class="form-inline">
+            <div class="form-group">
+              <label>选择活动</label>
+              <div class="select-wrapper">
+                <select id="bind-activity" class="form-select" style="width: 200px;">
+                  <option value="">请选择活动</option>
+                </select>
+                <span class="select-arrow">▼</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>手环编号</label>
+              <input type="text" id="bind-bracelet" class="form-control" placeholder="请输入手环编号" style="width: 150px;" />
+            </div>
+            <div class="form-group">
+              <label>叫号模式</label>
+              <div class="select-wrapper">
+                <select id="bind-mode" class="form-select">
+                  <option value="auto">自动分配</option>
+                  <option value="manual">手动输入</option>
+                </select>
+                <span class="select-arrow">▼</span>
+              </div>
+            </div>
+            <div class="form-group" id="bind-number-group" style="display: none;">
+              <label>号码</label>
+              <input type="number" id="bind-number" class="form-control" placeholder="请输入号码" style="width: 120px;" />
+            </div>
+            <button id="bind-btn" class="btn btn-primary">绑定</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">绑定列表</div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>活动ID</th>
+                <th>手环编号</th>
+                <th>排号</th>
+                <th>状态</th>
+                <th>绑定人</th>
+                <th>绑定时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="queues-table-body"></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      async function loadActivities() {
+        try {
+          const response = await fetch(`${API_URL}/activities?status=active`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const data = await response.json();
+          const activities = data.data || data;
+          const select = document.getElementById('bind-activity');
+          select.innerHTML = '<option value="">请选择活动</option>' + 
+            activities.map(act => `<option value="${act._id}">${act.name}</option>`).join('');
+        } catch (error) {
+          showMessage('error', '加载活动失败');
+        }
+      }
+      
+      async function loadQueues() {
+        try {
+          const response = await fetch(`${API_URL}/queues`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const queues = await response.json();
+          renderQueues(queues);
+        } catch (error) {
+          showMessage('error', '加载排队记录失败');
+        }
+      }
+      
+      function renderQueues(queues) {
+        const tbody = document.getElementById('queues-table-body');
+        tbody.innerHTML = queues.map(queue => {
+          const statusColor = queue.status === 'waiting' ? 'blue' : 'green';
+          const statusText = queue.status === 'waiting' ? '等待中' : '已叫号';
+          
+          return `
+            <tr>
+              <td>${queue.activityId}</td>
+              <td>${queue.手环编号}</td>
+              <td>${queue.号码}</td>
+              <td><span class="tag tag-${statusColor}">${statusText}</span></td>
+              <td>${queue.boundBy || '-'}</td>
+              <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
+              <td><button class="btn btn-danger btn-small" onclick="unbindQueue('${queue._id}')">解绑</button></td>
+            </tr>
+          `;
+        }).join('');
+        
+        if (queues.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      async function bindBracelet() {
+        const activityId = document.getElementById('bind-activity').value;
+        const braceletId = document.getElementById('bind-bracelet').value;
+        const mode = document.getElementById('bind-mode').value;
+        const number = document.getElementById('bind-number').value;
+        
+        if (!activityId || !braceletId || !mode) {
+          showMessage('warning', '请填写完整信息');
+          return;
+        }
+        if (mode === 'manual' && !number) {
+          showMessage('warning', '手动模式请输入号码');
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/queue/bind`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ activityId, 手环编号: braceletId, mode, 号码: mode === 'manual' ? number : undefined })
+          });
+          
+          if (response.ok) {
+            showMessage('success', '绑定成功');
+            document.getElementById('bind-bracelet').value = '';
+            document.getElementById('bind-number').value = '';
+            loadQueues();
+          } else {
+            const data = await response.json();
+            showMessage('error', data.error || '绑定失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      }
+      
+      function unbindQueue(id) {
+        confirm({
+          title: '确认解绑',
+          content: '确定要解绑吗？',
+          onOk: async () => {
+            try {
+              const response = await fetch(`${API_URL}/queue/${id}`, {
+                method: 'DELETE',
+                headers: { Authorization: localStorage.getItem('token') }
+              });
+              
+              if (response.ok) {
+                showMessage('success', '解绑成功');
+                loadQueues();
+              } else {
+                showMessage('error', '解绑失败');
+              }
+            } catch (error) {
+              showMessage('error', '网络错误');
+            }
+          }
+        });
+      }
+      
+      document.getElementById('bind-mode').addEventListener('change', (e) => {
+        document.getElementById('bind-number-group').style.display = e.target.value === 'manual' ? 'block' : 'none';
+      });
+      
+      document.getElementById('bind-btn').addEventListener('click', bindBracelet);
+      
+      window.unbindQueue = unbindQueue;
+      
+      loadActivities();
+      loadQueues();
+    }
+    
+    // Queue Management
+    function renderQueueManagement() {
+      const html = `
+        <div class="card">
+          <div class="form-inline">
+            <div class="form-group">
+              <label>选择活动</label>
+              <div class="select-wrapper">
+                <select id="call-activity" class="form-select" style="width: 200px;">
+                  <option value="">请选择活动</option>
+                </select>
+                <span class="select-arrow">▼</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card" id="status-card" style="display: none;">
+          <div style="display: flex; gap: 32px;">
+            <div>
+              <span style="color: #999;">当前叫号：</span>
+              <span id="current-number" style="font-size: 32px; font-weight: bold; color: #1890ff;">0</span>
+            </div>
+            <div>
+              <span style="color: #999;">等待人数：</span>
+              <span id="queue-count" style="font-size: 24px; font-weight: bold; color: #52c41a;">0</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-title" style="margin-bottom: 16px;">叫号操作</div>
+          <div class="form-inline">
+            <button id="call-next-btn" class="btn btn-primary" style="padding: 12px 32px; font-size: 16px;">下一位</button>
+            <div class="form-group">
+              <label>手动叫号</label>
+              <input type="number" id="call-number" class="form-control" placeholder="输入号码" style="width: 150px;" />
+            </div>
+            <button id="call-manual-btn" class="btn btn-default">叫号</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-title">等待队列</div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>手环编号</th>
+                <th>排号</th>
+                <th>状态</th>
+                <th>绑定时间</th>
+                <th>叫号时间</th>
+              </tr>
+            </thead>
+            <tbody id="waiting-queues-body"></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      async function loadActivities() {
+        try {
+          const response = await fetch(`${API_URL}/activities?status=active`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const data = await response.json();
+          const activities = data.data || data;
+          const select = document.getElementById('call-activity');
+          select.innerHTML = '<option value="">请选择活动</option>' + 
+            activities.map(act => `<option value="${act._id}">${act.name}</option>`).join('');
+        } catch (error) {
+          showMessage('error', '加载活动失败');
+        }
+      }
+      
+      async function loadStatus() {
+        const activityId = document.getElementById('call-activity').value;
+        if (!activityId) return;
+        
+        try {
+          const response = await fetch(`${API_URL}/queue/status/${activityId}`);
+          const status = await response.json();
+          
+          document.getElementById('current-number').textContent = status.currentNumber || 0;
+          document.getElementById('queue-count').textContent = status.queueCount || 0;
+          document.getElementById('status-card').style.display = 'block';
+        } catch (error) {
+          showMessage('error', '加载状态失败');
+        }
+      }
+      
+      async function loadQueues() {
+        const activityId = document.getElementById('call-activity').value;
+        if (!activityId) {
+          document.getElementById('waiting-queues-body').innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">请选择活动</td></tr>';
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/queues/${activityId}`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const queues = await response.json();
+          const waitingQueues = queues.filter(q => q.status === 'waiting');
+          
+          const tbody = document.getElementById('waiting-queues-body');
+          tbody.innerHTML = waitingQueues.map(queue => {
+            return `
+              <tr>
+                <td>${queue.手环编号}</td>
+                <td>${queue.号码}</td>
+                <td><span class="tag tag-blue">等待中</span></td>
+                <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
+                <td>-</td>
+              </tr>
+            `;
+          }).join('');
+          
+          if (waitingQueues.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">暂无等待队列</td></tr>';
+          }
+        } catch (error) {
+          showMessage('error', '加载排队记录失败');
+        }
+      }
+      
+      async function callNext() {
+        const activityId = document.getElementById('call-activity').value;
+        if (!activityId) {
+          showMessage('warning', '请选择活动');
+          return;
+        }
+        
+        const currentNumber = parseInt(document.getElementById('current-number').textContent);
+        const nextNumber = currentNumber + 1;
+        
+        try {
+          const response = await fetch(`${API_URL}/queue/call`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ activityId, number: nextNumber })
+          });
+          
+          if (response.ok) {
+            showMessage('success', `已叫号: ${nextNumber}`);
+            loadStatus();
+            loadQueues();
+          } else {
+            const data = await response.json();
+            showMessage('error', data.error || '叫号失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      }
+      
+      async function callManual() {
+        const activityId = document.getElementById('call-activity').value;
+        const number = document.getElementById('call-number').value;
+        
+        if (!activityId || !number) {
+          showMessage('warning', '请输入叫号号码');
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/queue/call`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ activityId, number: parseInt(number) })
+          });
+          
+          if (response.ok) {
+            showMessage('success', `已叫号: ${number}`);
+            document.getElementById('call-number').value = '';
+            loadStatus();
+            loadQueues();
+          } else {
+            const data = await response.json();
+            showMessage('error', data.error || '叫号失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      }
+      
+      document.getElementById('call-activity').addEventListener('change', () => {
+        loadStatus();
+        loadQueues();
+      });
+      
+      document.getElementById('call-next-btn').addEventListener('click', callNext);
+      document.getElementById('call-manual-btn').addEventListener('click', callManual);
+      
+      loadActivities();
+    }
+    
+    // User Management
+    function renderUserManagement() {
+      const html = `
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">用户管理</span>
+            <button id="add-user-btn" class="btn btn-primary">+ 添加用户</button>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>权限</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body"></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      async function loadUsers() {
+        try {
+          const response = await fetch(`${API_URL}/users`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const users = await response.json();
+          renderUsers(users);
+        } catch (error) {
+          showMessage('error', '加载用户失败');
+        }
+      }
+      
+      function renderUsers(users) {
+        const tbody = document.getElementById('users-table-body');
+        tbody.innerHTML = users.map(user => {
+          const roleColor = user.role === 'admin' ? 'red' : 'blue';
+          const roleText = user.role === 'admin' ? '管理员' : '工作人员';
+          
+          return `
+            <tr>
+              <td>${user.id}</td>
+              <td>${user.username}</td>
+              <td><span class="tag tag-${roleColor}">${roleText}</span></td>
+              <td>${user.permissions.join(', ')}</td>
+            </tr>
+          `;
+        }).join('');
+        
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      document.getElementById('add-user-btn').addEventListener('click', () => {
+        createModal({
+          title: '添加用户',
+          body: `
+            <div class="form-group">
+              <label>用户名</label>
+              <input type="text" id="add-user-username" class="form-control" placeholder="请输入用户名" />
+            </div>
+            <div class="form-group">
+              <label>密码</label>
+              <input type="password" id="add-user-password" class="form-control" placeholder="请输入密码" />
+            </div>
+            <div class="form-group">
+              <label>角色</label>
+              <select id="add-user-role" class="form-select">
+                <option value="admin">管理员</option>
+                <option value="staff">工作人员</option>
+              </select>
+            </div>
+          `,
+          footer: `
+            <button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
+            <button class="btn btn-primary" onclick="submitAddUser()">确定</button>
+          `
+        });
+      });
+      
+      window.submitAddUser = async () => {
+        const username = document.getElementById('add-user-username').value;
+        const password = document.getElementById('add-user-password').value;
+        const role = document.getElementById('add-user-role').value;
+        
+        if (!username || !password) {
+          showMessage('warning', '请填写用户名和密码');
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ username, password, role })
+          });
+          
+          if (response.ok) {
+            showMessage('success', '创建成功');
+            document.querySelector('.modal-overlay').remove();
+            loadUsers();
+          } else {
+            showMessage('error', '创建失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      };
+      
+      loadUsers();
+    }
+    
+    // Role Management
+    function renderRoleManagement() {
+      const html = `
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">角色管理</span>
+            <button id="add-role-btn" class="btn btn-primary">+ 添加角色</button>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>角色名称</th>
+                <th>权限列表</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="roles-table-body"></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      async function loadRoles() {
+        try {
+          const response = await fetch(`${API_URL}/roles`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const roles = await response.json();
+          renderRoles(roles);
+        } catch (error) {
+          showMessage('error', '加载角色失败');
+        }
+      }
+      
+      function renderRoles(roles) {
+        const tbody = document.getElementById('roles-table-body');
+        tbody.innerHTML = roles.map(role => `
+          <tr>
+            <td>${role._id}</td>
+            <td>${role.name}</td>
+            <td>${role.permissions.join(', ')}</td>
+            <td><button class="btn btn-danger btn-small" onclick="deleteRole('${role._id}')">删除</button></td>
+          </tr>
+        `).join('');
+        
+        if (roles.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      function deleteRole(id) {
+        confirm({
+          title: '确认删除',
+          content: '确定要删除这个角色吗？',
+          onOk: async () => {
+            try {
+              const response = await fetch(`${API_URL}/roles/${id}`, {
+                method: 'DELETE',
+                headers: { Authorization: localStorage.getItem('token') }
+              });
+              
+              if (response.ok) {
+                showMessage('success', '删除成功');
+                loadRoles();
+              } else {
+                showMessage('error', '删除失败');
+              }
+            } catch (error) {
+              showMessage('error', '网络错误');
+            }
+          }
+        });
+      }
+      
+      document.getElementById('add-role-btn').addEventListener('click', () => {
+        createModal({
+          title: '添加角色',
+          body: `
+            <div class="form-group">
+              <label>角色名称</label>
+              <input type="text" id="add-role-name" class="form-control" placeholder="请输入角色名称" />
+            </div>
+            <div class="form-group">
+              <label>权限列表（逗号分隔）</label>
+              <input type="text" id="add-role-permissions" class="form-control" placeholder="如：admin, activity.manage" />
+            </div>
+          `,
+          footer: `
+            <button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
+            <button class="btn btn-primary" onclick="submitAddRole()">确定</button>
+          `
+        });
+      });
+      
+      window.submitAddRole = async () => {
+        const name = document.getElementById('add-role-name').value;
+        const permissions = document.getElementById('add-role-permissions').value.split(',').map(p => p.trim()).filter(p => p);
+        
+        if (!name) {
+          showMessage('warning', '请输入角色名称');
+          return;
+        }
+        
+        try {
+          const response = await fetch(`${API_URL}/roles`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ name, permissions })
+          });
+          
+          if (response.ok) {
+            showMessage('success', '创建成功');
+            document.querySelector('.modal-overlay').remove();
+            loadRoles();
+          } else {
+            showMessage('error', '创建失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      };
+      
+      window.deleteRole = deleteRole;
+      
+      loadRoles();
+    }
+    
+    // WeChat User Management
+    function renderWechatUserManagement() {
+      const html = `
+        <div class="card">
+          <div class="card-title">微信用户管理</div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>OpenID</th>
+                <th>创建时间</th>
+                <th>最后登录</th>
+                <th>活动数量</th>
+                <th>绑定数量</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="wechat-users-table-body"></tbody>
+          </table>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+      
+      async function loadWechatUsers() {
+        try {
+          const response = await fetch(`${API_URL}/wechat/users`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const data = await response.json();
+          renderWechatUsers(data.users || []);
+        } catch (error) {
+          showMessage('error', '加载微信用户失败');
+        }
+      }
+      
+      function renderWechatUsers(users) {
+        const tbody = document.getElementById('wechat-users-table-body');
+        tbody.innerHTML = users.map(user => `
+          <tr>
+            <td>${user.openid}</td>
+            <td>${user.createdAt ? new Date(user.createdAt).toLocaleString() : '-'}</td>
+            <td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</td>
+            <td>${user.activityCount || 0}</td>
+            <td>${user.bindingCount || 0}</td>
+            <td><button class="btn btn-default btn-small" onclick="viewWechatUserActivities('${user.openid}')">查看活动</button></td>
+          </tr>
+        `).join('');
+        
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      function viewWechatUserActivities(openid) {
+        fetch(`${API_URL}/wechat/user/${openid}/activities`, {
+          headers: { Authorization: localStorage.getItem('token') }
+        })
+        .then(response => response.json())
+        .then(data => {
+          const activitiesHtml = data.activities.length > 0 ? `
+            <table class="table" style="margin-bottom: 0;">
+              <thead>
+                <tr><th>活动ID</th><th>活动名称</th><th>手环编号</th><th>排号</th><th>状态</th><th>绑定时间</th></tr>
+              </thead>
+              <tbody>
+                ${data.activities.map(act => `<tr>
+                  <td>${act.activityId}</td>
+                  <td>${act.activityName}</td>
+                  <td>${act.braceletId}</td>
+                  <td>${act.number}</td>
+                  <td><span class="tag tag-${act.status === 'waiting' ? 'blue' : 'green'}">${act.status === 'waiting' ? '等待中' : '已叫号'}</span></td>
+                  <td>${new Date(act.boundAt).toLocaleString()}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          ` : '<p style="text-align: center; color: #999;">暂无活动记录</p>';
+          
+          createModal({
+            title: `用户 ${openid} 的活动记录`,
+            body: activitiesHtml
+          });
+        })
+        .catch(error => showMessage('error', '加载失败'));
+      }
+      
+      window.viewWechatUserActivities = viewWechatUserActivities;
+      
+      loadWechatUsers();
+    }
+    
+    // Main Layout
+    function renderMainLayout(user) {
+      const html = `
+        <div class="layout">
+          <div class="layout-header">
+            <div class="layout-header-title">漫展排队系统</div>
+            <div class="layout-header-right">
+              <span>欢迎, ${user.username}</span>
+              <button class="btn btn-default" onclick="logout()">退出登录</button>
+            </div>
+          </div>
+          <div class="layout-body">
+            <div class="layout-sider">
+              <ul class="menu">
+                <li class="menu-item active" id="menu-activity"><span>活动管理</span></li>
+                <li class="menu-item" id="menu-bind"><span>手环绑定</span></li>
+                <li class="menu-item" id="menu-queue"><span>叫号管理</span></li>
+                <li class="menu-item" id="menu-users"><span>用户管理</span></li>
+                <li class="menu-item" id="menu-roles"><span>角色管理</span></li>
+                <li class="menu-item" id="menu-wechat"><span>微信用户</span></li>
+              </ul>
+            </div>
+            <div class="layout-content" id="main-content"></div>
+          </div>
+        </div>
+      `;
+      document.getElementById('app').innerHTML = html;
+      
+      function setActiveMenu(key) {
+        document.querySelectorAll('.menu-item').forEach(item => item.classList.remove('active'));
+        document.getElementById(`menu-${key}`).classList.add('active');
+      }
+      
+      document.getElementById('menu-activity').addEventListener('click', () => {
+        setActiveMenu('activity');
+        renderActivityManagement();
+      });
+      
+      document.getElementById('menu-bind').addEventListener('click', () => {
+        setActiveMenu('bind');
+        renderBindManagement();
+      });
+      
+      document.getElementById('menu-queue').addEventListener('click', () => {
+        setActiveMenu('queue');
+        renderQueueManagement();
+      });
+      
+      document.getElementById('menu-users').addEventListener('click', () => {
+        setActiveMenu('users');
+        renderUserManagement();
+      });
+      
+      document.getElementById('menu-roles').addEventListener('click', () => {
+        setActiveMenu('roles');
+        renderRoleManagement();
+      });
+      
+      document.getElementById('menu-wechat').addEventListener('click', () => {
+        setActiveMenu('wechat');
+        renderWechatUserManagement();
+      });
+      
+      renderActivityManagement();
+    }
+    
+    // Logout
+    window.logout = function() {
+      localStorage.removeItem('token');
+      showMessage('success', '退出成功');
+      initApp();
+    };
+    
+    // Initialize App
+    async function initApp() {
+      const token = localStorage.getItem('token');
+      
+      if (token) {
+        try {
+          const response = await fetch(`${API_URL}/auth/current`, {
+            headers: { Authorization: token }
+          });
+          const data = await response.json();
+          
+          if (data.user) {
+            renderMainLayout(data.user);
+            return;
+          }
+        } catch (error) {
+          // Token expired or invalid
+        }
+      }
+      
+      renderLoginPage(renderMainLayout);
+    }
+    
+    initApp();
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!-- test-login/index.wxml -->
+<view class="container">
+  <view class="header">
+    <text class="title">微信登录测试</text>
+  </view>
+
+  <view class="card">
+    <view class="status-item">
+      <text class="label">登录状态：</text>
+      <text class="value {{loginStatus === '已登录' ? 'success' : 'pending'}}">{{loginStatus}}</text>
+    </view>
+
+    <view class="status-item" wx:if="{{openid}}">
+      <text class="label">OpenID：</text>
+      <text class="value openid" bindtap="copyOpenid">{{openid}}</text>
+      <text class="hint">（点击复制）</text>
+    </view>
+
+    <view class="status-item" wx:if="{{token}}">
+      <text class="label">Token：</text>
+      <text class="value token">{{token}}</text>
+    </view>
+  </view>
+
+  <view class="actions">
+    <button class="btn primary" bindtap="reLogin" disabled="{{loading}}">
+      {{loading ? '登录中...' : '重新登录'}}
+    </button>
+    
+    <button class="btn secondary" bindtap="showGlobalData">
+      查看全局数据
+    </button>
+  </view>
+
+  <view class="tips">
+    <text class="tip-title">使用说明：</text>
+    <text class="tip-item">1. 页面加载时会自动获取微信用户信息</text>
+    <text class="tip-item">2. OpenID是用户的唯一标识，用于消息推送</text>
+    <text class="tip-item">3. 点击"重新登录"可以清除缓存并重新获取</text>
+    <text class="tip-item">4. 检查控制台日志查看详细流程</text>
+  </view>
+</view>
