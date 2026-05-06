@@ -7,7 +7,7 @@ App({
   },
   
   globalData: {
-    API_URL: 'http://localhost:3000/api',
+    API_URL: 'http://172.16.102.3:3000/api',
     userInfo: null,
     openid: null,
     token: null
