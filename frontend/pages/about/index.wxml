@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="content">
+    <view class="header-section">
+      <image class="logo-icon" src="/IAGF_icon_compressed.jpg" mode="aspectFit" lazy-load />
+    </view>
+    
+    <view class="divider"></view>
+    
+    <view class="desc-card">
+      <text class="desc-text">
+        IAGF国际动漫周边交流展（international anime goods festival）是中国首次以动漫、角色、商品、杂货的销售、展示等为中心展开的展览会。
+      </text>
+      <text class="desc-text">
+        近年来，在中国作为消费主角的Z世代，受到动画等亚文化的强烈影响，对角色商品等的关注度提高，购买价格合理且产品阵容丰富的杂货的消费倾向很强。
+      </text>
+      <text class="desc-text">
+        “IAGF”为中国年轻用户提供了最新的动漫潮流商品的同时，传递着“新的乐趣和感动”的主旨。
+      </text>
+    </view>
+  </view>
+  
+  <view class="footer">
+    <text class="footer-text">© 2026 IAGF International Anime Goods Festival</text>
+  </view>
+</view>

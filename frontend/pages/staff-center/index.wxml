@@ -1,0 +1,100 @@
+<view class="page">
+  <view class="group">
+    <view class="cell cell-picker">
+      <text class="cell-title">选择活动</text>
+      <picker mode="selector" range="{{activityNames}}" bindchange="selectActivity">
+        <view class="cell-bd">
+          <text class="cell-value {{selectedActivityName ? 'is-on' : 'is-ph'}}">{{selectedActivityName ? selectedActivityName : '请选择活动'}}</text>
+          <text class="cell-accessory">›</text>
+        </view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="group">
+    <view class="cell cell-input-row">
+      <text class="cell-title">手环编码</text>
+      <input
+        class="cell-input"
+        type="text"
+        maxlength="128"
+        placeholder="中英文大小写、数字、标点与符号，MG#共27位"
+        value="{{braceletCode}}"
+        bindinput="inputBraceletCode"
+      />
+      <button class="cell-btn-mini" type="default" size="mini" bindtap="scanBracelet" disabled="{{isScanning}}">扫码</button>
+    </view>
+  </view>
+
+  <view class="group">
+    <view class="cell cell-picker">
+      <text class="cell-title">排队码方式</text>
+      <picker mode="selector" range="{{queueModeLabels}}" value="{{queueModeIndex}}" bindchange="onQueueModePick">
+        <view class="cell-bd">
+          <text class="cell-value is-on">{{queueModeDisplay}}</text>
+          <text class="cell-accessory">›</text>
+        </view>
+      </picker>
+    </view>
+    <view class="cell">
+      <input
+        class="queue-input"
+        type="text"
+        placeholder="请输入排队码"
+        value="{{queueCode}}"
+        bindinput="inputQueueCode"
+        disabled="{{inputMode === 'auto'}}"
+      />
+      <view wx:if="{{inputMode === 'auto' && lastQueueCode}}" class="hint">
+        上次绑定：{{lastQueueCode}}，本次：{{nextAutoQueueCode}}
+      </view>
+    </view>
+  </view>
+
+  <view class="footer">
+    <button type="primary" bindtap="confirmBinding" disabled="{{isSubmitting}}" loading="{{isSubmitting}}">
+      确认登记
+    </button>
+  </view>
+
+  <view class="group recent-group">
+    <view class="recent-title">最近绑定（最多 5 条）</view>
+    <view wx:if="{{recentLoading}}" class="recent-empty">加载中…</view>
+    <view wx:elif="{{!recentBindings.length}}" class="recent-empty">暂无最近绑定记录</view>
+    <view wx:else class="recent-list">
+      <view wx:for="{{recentBindings}}" wx:key="rowKey" class="recent-card">
+        <view class="recent-head">
+          <text class="recent-act">{{item.activityName || '未命名活动'}}</text>
+          <button
+            size="mini"
+            class="recent-unbind"
+            type="warn"
+            plain
+            data-id="{{item.id}}"
+            bindtap="unbindRecent"
+          >解绑</button>
+        </view>
+        <view class="recent-row">
+          <text class="recent-k">手环</text>
+          <text class="recent-v mono">{{item.braceletId}}</text>
+        </view>
+        <view class="recent-row">
+          <text class="recent-k">排号</text>
+          <text class="recent-v num">{{item.queueNumber}}</text>
+        </view>
+        <view class="recent-row">
+          <text class="recent-k">状态</text>
+          <text class="recent-v st-{{item.status}}">{{item.statusText}}</text>
+        </view>
+        <view class="recent-row">
+          <text class="recent-k">手环登记时间</text>
+          <text class="recent-v">{{item.staffTimeText}}</text>
+        </view>
+        <view class="recent-row last">
+          <text class="recent-k">用户扫码绑定时间</text>
+          <text class="recent-v">{{item.userBindText}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

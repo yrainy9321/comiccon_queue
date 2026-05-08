@@ -9,7 +9,8 @@ Page({
     userNumber: 0,
     queueCount: 0,
     estimatedTime: 0,
-    braceletId: ''
+    braceletId: '',
+    queueStatusText: ''
   },
 
   onLoad(options) {
@@ -64,8 +65,15 @@ Page({
       method: 'GET',
       success: (res) => {
         if (res.statusCode === 200 && res.data) {
+          const st = res.data.status;
+          const map = {
+            waiting: '待发放给用户',
+            claimed: '用户已扫码绑定',
+            called: '已叫号入场'
+          };
           this.setData({
-            userNumber: res.data.号码 || 0
+            userNumber: res.data.号码 || 0,
+            queueStatusText: map[st] || st || ''
           });
         }
       }

@@ -9,6 +9,9 @@ node_modules/
 # Data files (production data)
 backend/data/*.json
 
+# 用户上传（头像等），勿入库
+backend/uploads/
+
 # Logs
 logs/
 *.log

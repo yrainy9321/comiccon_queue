@@ -23,6 +23,10 @@
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-danger { background: #ff4d4f; color: #fff; }
     .btn-danger:hover { background: #ff7875; }
+    .btn-success { background: #52c41a; color: #fff; }
+    .btn-success:hover { background: #73d13d; }
+    .btn-warning { background: #faad14; color: #fff; }
+    .btn-warning:hover { background: #ffc53d; }
     .btn-default { background: #fff; color: #666; border: 1px solid #d9d9d9; }
     .btn-default:hover { background: #f5f5f5; }
     .btn-small { padding: 6px 12px; font-size: 12px; }
@@ -49,6 +53,7 @@
     .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
     .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
     .card-title { font-size: 18px; font-weight: 600; color: #1f1f1f; }
+    .card-actions { display: flex; gap: 8px; }
     
     /* Table */
     .table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -79,12 +84,12 @@
     
     /* Modal */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; }
-    .modal { background: #fff; border-radius: 8px; width: 480px; max-width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,0.2); }
-    .modal-header { padding: 16px 24px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+    .modal { background: #fff; border-radius: 8px; width: 800px; max-width: 90%; max-height: 80vh; box-shadow: 0 4px 24px rgba(0,0,0,0.2); display: flex; flex-direction: column; }
+    .modal-header { padding: 16px 24px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
     .modal-title { font-size: 16px; font-weight: 600; }
     .modal-close { width: 24px; height: 24px; display: flex; justify-content: center; align-items: center; cursor: pointer; border-radius: 50%; }
     .modal-close:hover { background: #f0f0f0; }
-    .modal-body { padding: 24px; }
+    .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
     .modal-footer { padding: 16px 24px; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 8px; }
     
     /* Message */
@@ -130,6 +135,33 @@
       document.body.appendChild(msg);
       setTimeout(() => msg.remove(), 3000);
     }
+
+    const BRACELET_ID_MAX_LEN = 128;
+    function braceletIdCharError(s) {
+      if (typeof s !== 'string' || !s.length) return '手环编号不能为空';
+      if (s.length > BRACELET_ID_MAX_LEN) return '手环编号过长（最多 ' + BRACELET_ID_MAX_LEN + ' 个字符）';
+      if (/\s/.test(s)) return '手环编号不能含空白字符';
+      if (!/^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(s)) {
+        return '手环编号仅支持中英文（大小写）、数字、标点与常见符号';
+      }
+      if (/\p{Extended_Pictographic}/u.test(s)) return '手环编号不能包含表情符号';
+      if (/\p{C}/u.test(s)) return '手环编号包含非法字符';
+      return null;
+    }
+    function validateBraceletStrictMg27(raw) {
+      const v = String(raw == null ? '' : raw).trim();
+      const err = braceletIdCharError(v);
+      if (err) return { ok: false, error: err, value: v };
+      if (!/^MG#.{24}$/.test(v)) return { ok: false, error: '手环编号格式不正确，应为 MG# 开头共 27 位', value: v };
+      return { ok: true, value: v };
+    }
+
+    function queueBindStatusDisplay(status) {
+      if (status === 'waiting') return { cls: 'tag-blue', text: '待发放给用户' };
+      if (status === 'claimed') return { cls: 'tag-orange', text: '用户已扫码绑定' };
+      if (status === 'called') return { cls: 'tag-green', text: '已叫号入场' };
+      return { cls: 'tag-blue', text: status || '-' };
+    }
     
     // Modal Component
     function createModal(options) {
@@ -156,8 +188,19 @@
       const modal = createModal({
         title: options.title,
         body: options.content,
-        footer: `<button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
-                 <button class="btn btn-danger" onclick="(this.closest('.modal-overlay').remove(), options.onOk())">确定</button>`
+        footer: `<button class="btn btn-default" id="confirm-cancel-btn">取消</button>
+                 <button class="btn btn-danger" id="confirm-ok-btn">确定</button>`
+      });
+      
+      document.getElementById('confirm-cancel-btn').addEventListener('click', () => {
+        modal.remove();
+      });
+      
+      document.getElementById('confirm-ok-btn').addEventListener('click', () => {
+        modal.remove();
+        if (options.onOk) {
+          options.onOk();
+        }
       });
     }
     
@@ -169,11 +212,11 @@
             <div class="login-title">漫展排队系统</div>
             <div class="form-group">
               <label>用户名</label>
-              <input type="text" id="login-username" class="form-control" placeholder="请输入用户名" />
+              <input type="text" id="login-username" class="form-control" placeholder="请输入用户名" value="admin" />
             </div>
             <div class="form-group">
               <label>密码</label>
-              <input type="password" id="login-password" class="form-control" placeholder="请输入密码" />
+              <input type="password" id="login-password" class="form-control" placeholder="请输入密码" value="admin123" />
             </div>
             <button id="login-btn" class="btn btn-primary btn-block">登录</button>
             <div class="login-tip">默认账号：admin / admin123</div>
@@ -225,6 +268,7 @@
     
     // Activity Management
     function renderActivityManagement() {
+      const isCurrentUserAdmin = currentUser && currentUser.role === 'admin';
       const html = `
         <div class="card">
           <div class="form-inline">
@@ -243,8 +287,6 @@
                   <option value="">请选择</option>
                   <option value="active">启用</option>
                   <option value="inactive">禁用</option>
-                  <option value="pending">待处理</option>
-                  <option value="deleted">已删除</option>
                 </select>
                 <span class="select-arrow">▼</span>
               </div>
@@ -261,15 +303,18 @@
         <div class="card">
           <div class="card-header">
             <span class="card-title">活动管理</span>
-            <button id="add-activity-btn" class="btn btn-primary">+ 添加活动</button>
+            <div class="card-actions">
+              ${isCurrentUserAdmin ? '<button id="view-deleted-btn" class="btn btn-default">已删除活动</button>' : ''}
+              <button id="add-activity-btn" class="btn btn-primary">+ 添加活动</button>
+            </div>
           </div>
           <table class="table">
             <thead>
               <tr>
                 <th>ID</th>
                 <th>名称</th>
+                <th>描述</th>
                 <th>状态</th>
-                <th>当前叫号</th>
                 <th>创建人</th>
                 <th>创建时间</th>
                 <th>操作人</th>
@@ -315,52 +360,84 @@
       
       function renderActivities(activities) {
         const tbody = document.getElementById('activities-table-body');
+        
+        if (activities.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #999;">暂无数据</td></tr>';
+          return;
+        }
+        
         tbody.innerHTML = activities.map(activity => {
-          const statusColor = activity.status === 'active' ? 'green' : activity.status === 'deleted' ? 'red' : activity.status === 'pending' ? 'blue' : 'orange';
-          const statusText = activity.status === 'active' ? '启用' : activity.status === 'deleted' ? '已删除' : activity.status === 'pending' ? '待处理' : '禁用';
-          
-          let actions = '';
-          if (activity.status === 'active') {
-            actions += `<button class="btn btn-default btn-small" onclick="updateActivityStatus('${activity._id}', 'inactive')">禁用</button>`;
-          } else if (activity.status === 'inactive' || activity.status === 'pending') {
-            actions += `<button class="btn btn-primary btn-small" onclick="updateActivityStatus('${activity._id}', 'active')">启用</button>`;
-          }
-          if (activity.status !== 'deleted') {
-            actions += `<button class="btn btn-danger btn-small" style="margin-left: 8px;" onclick="deleteActivity('${activity._id}')">删除</button>`;
-          }
-          actions += `<button class="btn btn-default btn-small" style="margin-left: 8px;" onclick="viewActivityLogs(${JSON.stringify(activity)})">日志</button>`;
+          const statusColor = activity.status === 'active' ? 'green' : activity.status === 'deleted' ? 'red' : 'orange';
+          const statusText = activity.status === 'active' ? '启用' : activity.status === 'deleted' ? '已删除' : '禁用';
           
           return `
-            <tr>
+            <tr data-id="${activity._id}">
               <td>${activity._id}</td>
               <td>${activity.name}</td>
+              <td title="${activity.description || ''}">${activity.description ? (activity.description.length > 30 ? activity.description.substring(0, 30) + '...' : activity.description) : '-'}</td>
               <td><span class="tag tag-${statusColor}">${statusText}</span></td>
-              <td>${activity.currentNumber || 0}</td>
               <td>${activity.createdBy || '-'}</td>
               <td>${activity.createdAt ? new Date(activity.createdAt).toLocaleString() : '-'}</td>
               <td>${activity.updatedBy || '-'}</td>
               <td>${activity.updatedAt ? new Date(activity.updatedAt).toLocaleString() : '-'}</td>
-              <td>${actions}</td>
+              <td>
+                <button class="btn btn-small action-btn ${activity.status === 'active' ? 'btn-warning' : 'btn-success'}" data-action="update" data-status="${activity.status === 'active' ? 'inactive' : 'active'}">${activity.status === 'active' ? '禁用' : '启用'}</button>
+                <button class="btn btn-danger btn-small action-btn" style="margin-left: 8px;" data-action="delete">删除</button>
+                <button class="btn btn-default btn-small action-btn" style="margin-left: 8px;" data-action="logs">日志</button>
+              </td>
             </tr>
           `;
         }).join('');
         
-        if (activities.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #999;">暂无数据</td></tr>';
-        }
+        // 绑定事件
+        tbody.querySelectorAll('.action-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const row = btn.closest('tr');
+            const activityId = row.dataset.id;
+            
+            if (btn.dataset.action === 'update') {
+              updateActivityStatus(activityId, btn.dataset.status);
+            } else if (btn.dataset.action === 'delete') {
+              deleteActivity(activityId);
+            } else if (btn.dataset.action === 'logs') {
+              // 需要重新获取活动数据来查看日志
+              fetch(`${API_URL}/activities/${activityId}`, {
+                headers: { Authorization: localStorage.getItem('token') }
+              })
+              .then(response => response.json())
+              .then(activity => viewActivityLogs(activity))
+              .catch(error => showMessage('error', '获取活动信息失败'));
+            }
+          });
+        });
       }
       
       function renderPagination() {
         const container = document.getElementById('pagination-container');
         const totalPages = Math.ceil(pagination.total / pagination.pageSize);
         
-        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} onclick="pagination.current--; loadActivities()">上一页</button>`;
+        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>`;
         for (let i = 1; i <= totalPages; i++) {
-          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" onclick="pagination.current=${i}; loadActivities()">${i}</button>`;
+          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" data-page="${i}">${i}</button>`;
         }
-        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} onclick="pagination.current++; loadActivities()">下一页</button>`;
+        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>`;
         
         container.innerHTML = html;
+        
+        container.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (btn.dataset.action === 'prev' && pagination.current > 1) {
+              pagination.current--;
+              loadActivities();
+            } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
+              pagination.current++;
+              loadActivities();
+            } else if (btn.dataset.page) {
+              pagination.current = parseInt(btn.dataset.page);
+              loadActivities();
+            }
+          });
+        });
       }
       
       async function updateActivityStatus(id, status) {
@@ -407,6 +484,146 @@
         });
       }
       
+      async function loadDeletedActivities() {
+        let pagination = { current: 1, pageSize: 10, total: 0 };
+        
+        async function fetchDeletedActivities(pageNum) {
+          try {
+            const response = await fetch(`${API_URL}/activities/deleted?page=${pageNum}&pageSize=${pagination.pageSize}`, {
+              headers: { Authorization: localStorage.getItem('token') }
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+              pagination.total = data.total || 0;
+              pagination.current = pageNum;
+              renderDeletedActivities(data.data || []);
+            }
+          } catch (error) {
+            showMessage('error', '加载失败');
+          }
+        }
+        
+        function renderDeletedActivities(deletedActivities) {
+          if (deletedActivities.length === 0) {
+            modal.querySelector('.modal-body').innerHTML = '<p style="text-align: center; color: #999;">暂无已删除的活动</p>';
+            return;
+          }
+          
+          const totalPages = Math.ceil(pagination.total / pagination.pageSize);
+          
+          const tableHtml = `
+            <table class="table" style="margin-bottom: 16px; width: 100%;">
+              <thead>
+                <tr>
+                  <th style="width: 12%;">ID</th>
+                  <th style="width: 18%;">名称</th>
+                  <th style="width: 25%;">描述</th>
+                  <th style="width: 13%;">创建人</th>
+                  <th style="width: 17%;">创建时间</th>
+                  <th style="width: 15%;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${deletedActivities.map(activity => `
+                  <tr data-id="${activity._id}">
+                    <td>${activity._id}</td>
+                    <td>${activity.name}</td>
+                    <td title="${activity.description || ''}">${activity.description ? (activity.description.length > 20 ? activity.description.substring(0, 20) + '...' : activity.description) : '-'}</td>
+                    <td>${activity.createdBy || '-'}</td>
+                    <td>${activity.createdAt ? new Date(activity.createdAt).toLocaleString() : '-'}</td>
+                    <td>
+                      <button class="btn btn-primary btn-small restore-btn" style="margin-right: 4px;">恢复</button>
+                      <button class="btn btn-default btn-small logs-btn">日志</button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <div class="pagination" id="deleted-pagination">
+              <button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>
+              ${Array.from({ length: totalPages }, (_, i) => `
+                <button class="btn btn-default btn-small ${pagination.current === i + 1 ? 'active' : ''}" data-page="${i + 1}">${i + 1}</button>
+              `).join('')}
+              <button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>
+            </div>
+          `;
+          
+          modal.querySelector('.modal-body').innerHTML = tableHtml;
+          
+          // 绑定恢复按钮事件
+          modal.querySelectorAll('.restore-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const row = btn.closest('tr');
+              const activityId = row.dataset.id;
+              restoreActivity(activityId, modal);
+            });
+          });
+          
+          // 绑定日志按钮事件
+          modal.querySelectorAll('.logs-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const row = btn.closest('tr');
+              const activityId = row.dataset.id;
+              fetch(`${API_URL}/activities/${activityId}`, {
+                headers: { Authorization: localStorage.getItem('token') }
+              })
+              .then(response => response.json())
+              .then(activity => viewActivityLogs(activity))
+              .catch(error => showMessage('error', '获取活动信息失败'));
+            });
+          });
+          
+          // 绑定分页按钮事件
+          modal.querySelectorAll('#deleted-pagination button').forEach(btn => {
+            btn.addEventListener('click', () => {
+              if (btn.dataset.action === 'prev' && pagination.current > 1) {
+                fetchDeletedActivities(pagination.current - 1);
+              } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
+                fetchDeletedActivities(pagination.current + 1);
+              } else if (btn.dataset.page) {
+                fetchDeletedActivities(parseInt(btn.dataset.page));
+              }
+            });
+          });
+        }
+        
+        // 创建弹窗
+        const modal = createModal({
+          title: '已删除活动',
+          body: '<p style="text-align: center; color: #999;">加载中...</p>'
+        });
+        
+        // 首次加载第一页
+        fetchDeletedActivities(1);
+      }
+      
+      function restoreActivity(id, modal) {
+        confirm({
+          title: '确认恢复',
+          content: '确定要恢复这个活动吗？恢复后活动将处于禁用状态。',
+          onOk: async () => {
+            try {
+              const response = await fetch(`${API_URL}/activities/${id}/status`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+                body: JSON.stringify({ status: 'inactive' })
+              });
+              
+              if (response.ok) {
+                showMessage('success', '恢复成功');
+                modal.remove();
+                loadActivities();
+              } else {
+                showMessage('error', '恢复失败');
+              }
+            } catch (error) {
+              showMessage('error', '网络错误');
+            }
+          }
+        });
+      }
+      
       function viewActivityLogs(activity) {
         const logs = activity.operationLogs || [];
         const logsHtml = logs.length > 0 ? `
@@ -445,8 +662,14 @@
         loadActivities();
       });
       
+      if (isCurrentUserAdmin) {
+        document.getElementById('view-deleted-btn').addEventListener('click', () => {
+          loadDeletedActivities();
+        });
+      }
+      
       document.getElementById('add-activity-btn').addEventListener('click', () => {
-        createModal({
+        const modal = createModal({
           title: '添加活动',
           body: `
             <div class="form-group">
@@ -457,25 +680,49 @@
               <label>活动描述</label>
               <textarea id="add-description" class="form-control" placeholder="请输入活动描述"></textarea>
             </div>
-            <div class="form-group">
-              <label>叫号模式</label>
-              <select id="add-mode" class="form-select">
-                <option value="sequential">顺序叫号</option>
-                <option value="manual">手动叫号</option>
-              </select>
-            </div>
           `,
           footer: `
-            <button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
-            <button class="btn btn-primary" onclick="submitAddActivity()">确定</button>
+            <button class="btn btn-default" id="modal-cancel-btn">取消</button>
+            <button class="btn btn-primary" id="modal-confirm-btn">确定</button>
           `
+        });
+        
+        document.getElementById('modal-cancel-btn').addEventListener('click', () => {
+          modal.remove();
+        });
+        
+        document.getElementById('modal-confirm-btn').addEventListener('click', () => {
+          const name = document.getElementById('add-name').value;
+          const description = document.getElementById('add-description').value;
+          
+          if (!name) {
+            showMessage('warning', '请输入活动名称');
+            return;
+          }
+          
+          fetch(`${API_URL}/activities`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
+            body: JSON.stringify({ name, description })
+          })
+          .then(response => {
+            if (response.ok) {
+              showMessage('success', '创建成功');
+              modal.remove();
+              loadActivities();
+            } else {
+              showMessage('error', '创建失败');
+            }
+          })
+          .catch(error => {
+            showMessage('error', '网络错误');
+          });
         });
       });
       
       window.submitAddActivity = async () => {
         const name = document.getElementById('add-name').value;
         const description = document.getElementById('add-description').value;
-        const mode = document.getElementById('add-mode').value;
         
         if (!name) {
           showMessage('warning', '请输入活动名称');
@@ -486,7 +733,7 @@
           const response = await fetch(`${API_URL}/activities`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
-            body: JSON.stringify({ name, description, mode })
+            body: JSON.stringify({ name, description })
           });
           
           if (response.ok) {
@@ -508,150 +755,255 @@
       loadActivities();
     }
     
-    // Bind Management
+    // 登记手环（排队码方式与小程序员工端一致；手环框扫码满27位自动登记并保留焦点）
     function renderBindManagement() {
       const html = `
         <div class="card">
-          <div class="card-title" style="margin-bottom: 16px;">手环绑定</div>
-          <div class="form-inline">
+          <div class="card-title" style="margin-bottom: 16px;">登记手环</div>
+          <p style="color:#666;font-size:13px;margin-bottom:14px;line-height:1.5;">与小程序逻辑对齐：<strong>排队码</strong>可选「自定义」或「自动递增」（按本浏览器记录的上一次排队码 +1）。<strong>手环编号</strong>支持中英文大小写、数字、标点与常见符号（禁止空白、表情等），扫码格式为 <strong>MG# 开头共 27 位</strong>；录满合法后<strong>自动提交登记</strong>，成功后清空手环框并<strong>保持焦点</strong>便于连续扫码。</p>
+          <div class="form-inline" style="flex-wrap:wrap;align-items:flex-start;gap:12px;">
             <div class="form-group">
               <label>选择活动</label>
               <div class="select-wrapper">
-                <select id="bind-activity" class="form-select" style="width: 200px;">
+                <select id="bind-activity" class="form-select" style="width: 220px;">
                   <option value="">请选择活动</option>
                 </select>
                 <span class="select-arrow">▼</span>
               </div>
             </div>
-            <div class="form-group">
-              <label>手环编号</label>
-              <input type="text" id="bind-bracelet" class="form-control" placeholder="请输入手环编号" style="width: 150px;" />
-            </div>
-            <div class="form-group">
-              <label>叫号模式</label>
-              <div class="select-wrapper">
-                <select id="bind-mode" class="form-select">
-                  <option value="auto">自动分配</option>
-                  <option value="manual">手动输入</option>
-                </select>
-                <span class="select-arrow">▼</span>
+            <div class="form-group" style="min-width:240px;">
+              <label>排队码方式</label>
+              <div style="display:flex;gap:18px;align-items:center;margin-top:6px;">
+                <label style="cursor:pointer;font-weight:normal;"><input type="radio" name="bind-queue-mode" id="bind-queue-custom" value="custom" checked /> 自定义</label>
+                <label style="cursor:pointer;font-weight:normal;"><input type="radio" name="bind-queue-mode" id="bind-queue-auto" value="auto" /> 自动递增</label>
               </div>
             </div>
-            <div class="form-group" id="bind-number-group" style="display: none;">
-              <label>号码</label>
-              <input type="number" id="bind-number" class="form-control" placeholder="请输入号码" style="width: 120px;" />
+            <div class="form-group" id="bind-queue-code-wrap">
+              <label>排队码</label>
+              <input type="text" id="bind-queue-code" class="form-control" placeholder="请输入排队码" style="width:160px;" autocomplete="off" />
+              <div id="bind-queue-auto-hint" style="display:none;color:#888;font-size:12px;margin-top:6px;max-width:320px;"></div>
             </div>
-            <button id="bind-btn" class="btn btn-primary">绑定</button>
+            <div class="form-group" style="flex:1;min-width:280px;">
+              <label>手环编号</label>
+              <input type="text" id="bind-bracelet" class="form-control" placeholder="中英文大小写、数字、标点与符号；MG# 开头共27位，录满自动登记" style="width:100%;max-width:520px;" maxlength="128" autocomplete="off" />
+            </div>
+            <div class="form-group" style="align-self:flex-end;padding-top:22px;">
+              <button type="button" id="bind-btn" class="btn btn-primary">登记</button>
+            </div>
           </div>
         </div>
         
         <div class="card">
-          <div class="card-title">绑定列表</div>
+          <div class="card-title">登记列表</div>
           <table class="table">
             <thead>
               <tr>
                 <th>活动ID</th>
+                <th>活动名称</th>
                 <th>手环编号</th>
                 <th>排号</th>
                 <th>状态</th>
-                <th>绑定人</th>
-                <th>绑定时间</th>
+                <th>登记人</th>
+                <th>手环登记时间</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="queues-table-body"></tbody>
           </table>
+          <div id="pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+            <button type="button" id="prev-page" class="btn btn-default btn-small" disabled>上一页</button>
+            <span id="page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <button type="button" id="next-page" class="btn btn-default btn-small" disabled>下一页</button>
+          </div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
       
+      const LS_LAST_QUEUE = 'comiccon_admin_lastQueue_';
+      function lsGetLastQueue(activityId) {
+        if (!activityId) return '';
+        try { return localStorage.getItem(LS_LAST_QUEUE + activityId) || ''; } catch (e) { return ''; }
+      }
+      function lsSetLastQueue(activityId, code) {
+        if (!activityId) return;
+        try { localStorage.setItem(LS_LAST_QUEUE + activityId, String(code)); } catch (e) {}
+      }
+      function isQueueAutoMode() {
+        return document.getElementById('bind-queue-auto').checked;
+      }
+      function refreshQueueCodeUI() {
+        const activityId = document.getElementById('bind-activity').value;
+        const input = document.getElementById('bind-queue-code');
+        const hint = document.getElementById('bind-queue-auto-hint');
+        if (!input || !hint) return;
+        if (isQueueAutoMode()) {
+          input.style.display = 'none';
+          hint.style.display = 'block';
+          const last = lsGetLastQueue(activityId);
+          const n = parseInt(String(last), 10);
+          const next = last !== '' && !Number.isNaN(n) ? String(n + 1) : '';
+          hint.textContent = next
+            ? ('本次将使用排队码：' + next + '（上次：' + last + '）')
+            : '请先在「自定义」下成功登记一次，以建立自动递增基准。';
+        } else {
+          input.style.display = '';
+          hint.style.display = 'none';
+        }
+      }
+      function resolveQueueCodeForBind(activityId) {
+        if (isQueueAutoMode()) {
+          const last = lsGetLastQueue(activityId);
+          if (last === '') return '';
+          const n = parseInt(String(last), 10);
+          return Number.isNaN(n) ? '' : String(n + 1);
+        }
+        return (document.getElementById('bind-queue-code').value || '').trim();
+      }
+
       async function loadActivities() {
         try {
           const response = await fetch(`${API_URL}/activities?status=active`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
           const data = await response.json();
-          const activities = data.data || data;
+          let activities = data.data || data;
+          if (!Array.isArray(activities)) activities = [];
           const select = document.getElementById('bind-activity');
-          select.innerHTML = '<option value="">请选择活动</option>' + 
+          select.innerHTML = '<option value="">请选择活动</option>' +
             activities.map(act => `<option value="${act._id}">${act.name}</option>`).join('');
+          refreshQueueCodeUI();
         } catch (error) {
           showMessage('error', '加载活动失败');
         }
       }
+
+      let currentPage = 1;
+      let totalPages = 1;
       
-      async function loadQueues() {
+      async function loadQueues(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/queues`, {
+          const response = await fetch(`${API_URL}/queues?page=${page}&pageSize=20&sortBy=createdAt&sortOrder=desc`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
-          const queues = await response.json();
+          const data = await response.json();
+          const queues = data.data || data;
+          currentPage = data.page || 1;
+          totalPages = data.totalPages || 1;
           renderQueues(queues);
+          updatePagination();
         } catch (error) {
           showMessage('error', '加载排队记录失败');
         }
       }
-      
+
       function renderQueues(queues) {
         const tbody = document.getElementById('queues-table-body');
+        if (!queues || queues.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #999;">暂无数据</td></tr>';
+          return;
+        }
         tbody.innerHTML = queues.map(queue => {
-          const statusColor = queue.status === 'waiting' ? 'blue' : 'green';
-          const statusText = queue.status === 'waiting' ? '等待中' : '已叫号';
-          
+          const st = queueBindStatusDisplay(queue.status);
+          const qid = queue._id || queue.id || '';
           return `
             <tr>
               <td>${queue.activityId}</td>
-              <td>${queue.手环编号}</td>
-              <td>${queue.号码}</td>
-              <td><span class="tag tag-${statusColor}">${statusText}</span></td>
+              <td>${queue.activityName || '-'}</td>
+              <td>${queue.braceletId || queue.手环编号 || ''}</td>
+              <td>${queue.queueNumber != null && queue.queueNumber !== '' ? queue.queueNumber : (queue.号码 || queue.queueCode || '')}</td>
+              <td><span class="tag ${st.cls}">${st.text}</span></td>
               <td>${queue.boundBy || '-'}</td>
               <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
-              <td><button class="btn btn-danger btn-small" onclick="unbindQueue('${queue._id}')">解绑</button></td>
+              <td><button class="btn btn-danger btn-small" onclick="unbindQueue('${qid}')">解绑</button></td>
             </tr>
           `;
         }).join('');
-        
-        if (queues.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #999;">暂无数据</td></tr>';
-        }
       }
-      
+
+      function updatePagination() {
+        const pagination = document.getElementById('pagination');
+        const prevBtn = document.getElementById('prev-page');
+        const nextBtn = document.getElementById('next-page');
+        const pageInfo = document.getElementById('page-info');
+        
+        pagination.style.display = 'block';
+        prevBtn.disabled = currentPage <= 1;
+        nextBtn.disabled = currentPage >= totalPages;
+        pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+      }
+
+      function bindPaginationEvents() {
+        document.getElementById('prev-page').addEventListener('click', () => {
+          if (currentPage > 1) {
+            loadQueues(currentPage - 1);
+          }
+        });
+        document.getElementById('next-page').addEventListener('click', () => {
+          if (currentPage < totalPages) {
+            loadQueues(currentPage + 1);
+          }
+        });
+      }
+
+      let bindInFlight = false;
+      let scanDebounce = null;
       async function bindBracelet() {
+        if (bindInFlight) return;
         const activityId = document.getElementById('bind-activity').value;
-        const braceletId = document.getElementById('bind-bracelet').value;
-        const mode = document.getElementById('bind-mode').value;
-        const number = document.getElementById('bind-number').value;
-        
-        if (!activityId || !braceletId || !mode) {
-          showMessage('warning', '请填写完整信息');
+        const braceletEl = document.getElementById('bind-bracelet');
+        const check = validateBraceletStrictMg27(braceletEl.value);
+        if (!activityId) {
+          showMessage('warning', '请先选择活动');
           return;
         }
-        if (mode === 'manual' && !number) {
-          showMessage('warning', '手动模式请输入号码');
+        if (!check.value) {
+          showMessage('warning', '请录入手环编号');
           return;
         }
-        
+        if (!check.ok) {
+          showMessage('warning', check.error);
+          return;
+        }
+        const braceletId = check.value;
+        const queueCode = resolveQueueCodeForBind(activityId);
+        if (!queueCode) {
+          if (isQueueAutoMode()) {
+            showMessage('warning', '自动递增需先有上次排队码，请先用「自定义」成功登记一次');
+          } else {
+            showMessage('warning', '请输入排队码');
+          }
+          return;
+        }
+        bindInFlight = true;
         try {
           const response = await fetch(`${API_URL}/queue/bind`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
-            body: JSON.stringify({ activityId, 手环编号: braceletId, mode, 号码: mode === 'manual' ? number : undefined })
+            body: JSON.stringify({
+              activityId,
+              手环编号: braceletId,
+              mode: 'manual',
+              号码: queueCode
+            })
           });
-          
           if (response.ok) {
-            showMessage('success', '绑定成功');
-            document.getElementById('bind-bracelet').value = '';
-            document.getElementById('bind-number').value = '';
+            lsSetLastQueue(activityId, queueCode);
+            showMessage('success', '登记成功');
+            braceletEl.value = '';
+            refreshQueueCodeUI();
             loadQueues();
+            setTimeout(() => braceletEl.focus(), 0);
           } else {
-            const data = await response.json();
-            showMessage('error', data.error || '绑定失败');
+            const data = await response.json().catch(() => ({}));
+            showMessage('error', data.error || '登记失败');
           }
         } catch (error) {
           showMessage('error', '网络错误');
+        } finally {
+          bindInFlight = false;
         }
       }
-      
+
       function unbindQueue(id) {
         confirm({
           title: '确认解绑',
@@ -662,7 +1014,6 @@
                 method: 'DELETE',
                 headers: { Authorization: localStorage.getItem('token') }
               });
-              
               if (response.ok) {
                 showMessage('success', '解绑成功');
                 loadQueues();
@@ -675,17 +1026,35 @@
           }
         });
       }
-      
-      document.getElementById('bind-mode').addEventListener('change', (e) => {
-        document.getElementById('bind-number-group').style.display = e.target.value === 'manual' ? 'block' : 'none';
+
+      document.getElementById('bind-activity').addEventListener('change', refreshQueueCodeUI);
+      document.getElementById('bind-queue-custom').addEventListener('change', refreshQueueCodeUI);
+      document.getElementById('bind-queue-auto').addEventListener('change', refreshQueueCodeUI);
+
+      const braceletInput = document.getElementById('bind-bracelet');
+      braceletInput.addEventListener('input', () => {
+        clearTimeout(scanDebounce);
+        scanDebounce = setTimeout(() => {
+          const v = braceletInput.value.trim();
+          if (validateBraceletStrictMg27(v).ok) bindBracelet();
+        }, 120);
       });
-      
+      braceletInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          clearTimeout(scanDebounce);
+          bindBracelet();
+        }
+      });
+
       document.getElementById('bind-btn').addEventListener('click', bindBracelet);
-      
+
       window.unbindQueue = unbindQueue;
-      
+
       loadActivities();
       loadQueues();
+      refreshQueueCodeUI();
+      setTimeout(() => braceletInput.focus(), 0);
     }
     
     // Queue Management
@@ -706,14 +1075,25 @@
         </div>
         
         <div class="card" id="status-card" style="display: none;">
-          <div style="display: flex; gap: 32px;">
-            <div>
-              <span style="color: #999;">当前叫号：</span>
-              <span id="current-number" style="font-size: 32px; font-weight: bold; color: #1890ff;">0</span>
+          <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: center;">
+            <div style="display: flex; align-items: center;">
+              <span style="color: #999; font-size: 16px;">当前叫号：</span>
+              <span id="current-number" style="font-size: 28px; font-weight: bold; color: #1890ff; margin-left: 8px;">0</span>
+            </div>
+            <div style="display: flex; align-items: center;">
+              <span style="color: #999; font-size: 16px;">等待人数：</span>
+              <span id="queue-count" style="font-size: 28px; font-weight: bold; color: #52c41a; margin-left: 8px;">0</span>
+            </div>
+            <div style="display: flex; align-items: center;">
+              <span style="color: #999; font-size: 16px;">平均叫号间隔：</span>
+              <span id="avg-interval" style="font-size: 28px; font-weight: bold; color: #722ed1; margin-left: 8px;">-</span>
+            </div>
+            <div style="display: flex; align-items: center;">
+              <span style="color: #999; font-size: 16px;">排队状态：</span>
+              <span id="queue-status" style="font-size: 22px; font-weight: bold; margin-left: 8px;">-</span>
             </div>
             <div>
-              <span style="color: #999;">等待人数：</span>
-              <span id="queue-count" style="font-size: 24px; font-weight: bold; color: #52c41a;">0</span>
+              <button id="queue-pause-btn" class="btn btn-warning" style="padding: 8px 20px; font-size: 14px;">暂停排队</button>
             </div>
           </div>
         </div>
@@ -721,7 +1101,6 @@
         <div class="card">
           <div class="card-title" style="margin-bottom: 16px;">叫号操作</div>
           <div class="form-inline">
-            <button id="call-next-btn" class="btn btn-primary" style="padding: 12px 32px; font-size: 16px;">下一位</button>
             <div class="form-group">
               <label>手动叫号</label>
               <input type="number" id="call-number" class="form-control" placeholder="输入号码" style="width: 150px;" />
@@ -732,18 +1111,44 @@
         
         <div class="card">
           <div class="card-title">等待队列</div>
+          <div style="margin-bottom: 16px; border-bottom: 1px solid #e8e8e8;">
+            <div style="display: inline-flex; background: #f5f5f5; border-radius: 4px; padding: 2px;">
+              <button id="tab-waiting" class="tab-btn-active" style="padding: 8px 24px; font-size: 14px; border: none; background: #1890ff; color: white; border-radius: 4px; cursor: pointer;">等待叫号</button>
+              <button id="tab-called" class="tab-btn" style="padding: 8px 24px; font-size: 14px; border: none; background: transparent; color: #666; border-radius: 4px; cursor: pointer; margin-left: 4px;">已叫号</button>
+            </div>
+          </div>
+          <div style="margin-bottom: 16px; display: flex; gap: 16px; align-items: flex-end;">
+            <div style="flex: 1;">
+              <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #666;">手环编号</label>
+              <input type="text" id="search-bracelet" placeholder="搜索手环编号" style="width: 100%; height: 36px; padding: 0 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; box-sizing: border-box;" />
+            </div>
+            <div style="flex: 1;">
+              <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #666;">排号</label>
+              <input type="text" id="search-number" placeholder="搜索排号" style="width: 100%; height: 36px; padding: 0 12px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; box-sizing: border-box;" />
+            </div>
+            <div style="display: flex; flex-direction: column;">
+              <label style="display: block; margin-bottom: 6px; font-size: 14px; color: #666; visibility: hidden;">搜索</label>
+              <button id="search-btn" style="padding: 0 24px; font-size: 14px; height: 36px; border: none; border-radius: 4px; background: #1890ff; color: white; cursor: pointer;">搜索</button>
+            </div>
+          </div>
           <table class="table">
             <thead>
               <tr>
                 <th>手环编号</th>
                 <th>排号</th>
                 <th>状态</th>
-                <th>绑定时间</th>
+                <th>手环登记时间</th>
                 <th>叫号时间</th>
+                <th id="operation-th">操作</th>
               </tr>
             </thead>
             <tbody id="waiting-queues-body"></tbody>
           </table>
+          <div id="queue-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+            <button id="queue-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
+            <span id="queue-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <button id="queue-next-page" class="btn btn-default btn-small" disabled>下一页</button>
+          </div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
@@ -768,49 +1173,253 @@
         if (!activityId) return;
         
         try {
-          const response = await fetch(`${API_URL}/queue/status/${activityId}`);
-          const status = await response.json();
+          const statusResponse = await fetch(`${API_URL}/queue/status/${activityId}`);
+          const status = await statusResponse.json();
+          
+          let activity = null;
+          try {
+            const activityResponse = await fetch(`${API_URL}/activities?id=${activityId}`, {
+              headers: { Authorization: localStorage.getItem('token') }
+            });
+            const activityData = await activityResponse.json();
+            activity = activityData.data ? activityData.data[0] : null;
+          } catch (e) {
+            console.log('获取活动信息失败:', e);
+          }
           
           document.getElementById('current-number').textContent = status.currentNumber || 0;
           document.getElementById('queue-count').textContent = status.queueCount || 0;
+          
+          const avgIntervalElement = document.getElementById('avg-interval');
+          const queueStatusElement = document.getElementById('queue-status');
+          const pauseBtn = document.getElementById('queue-pause-btn');
+          
+          if (status.avgIntervalSeconds > 0) {
+            const minutes = status.avgIntervalMinutes;
+            const seconds = status.avgIntervalSeconds % 60;
+            if (minutes > 0) {
+              avgIntervalElement.textContent = `${minutes}分${seconds > 0 ? seconds + '秒' : ''}`;
+            } else {
+              avgIntervalElement.textContent = `${seconds}秒`;
+            }
+          } else {
+            avgIntervalElement.textContent = '-';
+          }
+          
+          const isPaused = activity && activity.queuePaused;
+          
+          const callNumberInput = document.getElementById('call-number');
+          const callManualBtn = document.getElementById('call-manual-btn');
+          
+          if (isPaused) {
+            queueStatusElement.textContent = '排队暂停';
+            queueStatusElement.style.color = '#faad14';
+            pauseBtn.textContent = '继续排队';
+            pauseBtn.className = 'btn btn-success';
+            callNumberInput.disabled = true;
+            callManualBtn.disabled = true;
+            callNumberInput.style.opacity = '0.5';
+            callManualBtn.style.opacity = '0.5';
+          } else if (status.isSlow) {
+            queueStatusElement.textContent = '排队缓慢';
+            queueStatusElement.style.color = '#f5222d';
+            pauseBtn.textContent = '暂停排队';
+            pauseBtn.className = 'btn btn-warning';
+            callNumberInput.disabled = false;
+            callManualBtn.disabled = false;
+            callNumberInput.style.opacity = '1';
+            callManualBtn.style.opacity = '1';
+          } else {
+            queueStatusElement.textContent = '正常';
+            queueStatusElement.style.color = '#52c41a';
+            pauseBtn.textContent = '暂停排队';
+            pauseBtn.className = 'btn btn-warning';
+            callNumberInput.disabled = false;
+            callManualBtn.disabled = false;
+            callNumberInput.style.opacity = '1';
+            callManualBtn.style.opacity = '1';
+          }
+          
           document.getElementById('status-card').style.display = 'block';
         } catch (error) {
-          showMessage('error', '加载状态失败');
+          showMessage('error', '加载状态失败: ' + error.message);
         }
       }
       
-      async function loadQueues() {
+      async function toggleQueuePause() {
         const activityId = document.getElementById('call-activity').value;
         if (!activityId) {
-          document.getElementById('waiting-queues-body').innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">请选择活动</td></tr>';
+          showMessage('warning', '请选择活动');
           return;
         }
         
+        const pauseBtn = document.getElementById('queue-pause-btn');
+        const isPaused = pauseBtn.textContent === '继续排队';
+        
         try {
-          const response = await fetch(`${API_URL}/queues/${activityId}`, {
-            headers: { Authorization: localStorage.getItem('token') }
+          const response = await fetch(`${API_URL}/activities/${activityId}/queue-pause`, {
+            method: 'PUT',
+            headers: { 
+              'Content-Type': 'application/json', 
+              Authorization: localStorage.getItem('token') 
+            },
+            body: JSON.stringify({ paused: !isPaused })
           });
-          const queues = await response.json();
-          const waitingQueues = queues.filter(q => q.status === 'waiting');
           
-          const tbody = document.getElementById('waiting-queues-body');
-          tbody.innerHTML = waitingQueues.map(queue => {
-            return `
-              <tr>
-                <td>${queue.手环编号}</td>
-                <td>${queue.号码}</td>
-                <td><span class="tag tag-blue">等待中</span></td>
-                <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
-                <td>-</td>
-              </tr>
-            `;
-          }).join('');
-          
-          if (waitingQueues.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">暂无等待队列</td></tr>';
+          if (response.ok) {
+            if (isPaused) {
+              showMessage('success', '已继续排队');
+            } else {
+              showMessage('success', '已暂停排队');
+            }
+            loadStatus();
+            loadQueues();
+          } else {
+            const data = await response.json();
+            showMessage('error', data.error || '操作失败');
           }
         } catch (error) {
+          showMessage('error', '网络错误');
+        }
+      }
+      
+      let currentPage = 1;
+      let totalPages = 1;
+      let currentTab = 'waiting';
+      
+      function getSearchParams() {
+        const bracelet = document.getElementById('search-bracelet').value || '';
+        const number = document.getElementById('search-number').value || '';
+        return { bracelet, number };
+      }
+      
+      async function loadQueues(page = 1) {
+        const activityId = document.getElementById('call-activity').value;
+        if (!activityId) {
+          document.getElementById('waiting-queues-body').innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">请选择活动</td></tr>';
+          document.getElementById('queue-pagination').style.display = 'block';
+          document.getElementById('queue-page-info').textContent = '第 1 页 / 共 1 页';
+          document.getElementById('queue-prev-page').disabled = true;
+          document.getElementById('queue-next-page').disabled = true;
+          return;
+        }
+        
+        const { bracelet, number } = getSearchParams();
+        
+        try {
+          let url = `${API_URL}/queues?activityId=${activityId}&page=${page}&pageSize=10`;
+          if (bracelet) url += `&bracelet=${encodeURIComponent(bracelet)}`;
+          if (number) url += `&number=${encodeURIComponent(number)}`;
+          
+          const response = await fetch(url, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const data = await response.json();
+          let queues = data.data || [];
+          
+          if (currentTab === 'waiting') {
+            queues = queues.filter(q => q.status === 'waiting' || q.status === 'claimed');
+            queues.sort((a, b) => {
+              const numA = parseInt(a.number) || 0;
+              const numB = parseInt(b.number) || 0;
+              return numA - numB;
+            });
+          } else {
+            queues = queues.filter(q => q.status === 'called');
+            queues.sort((a, b) => {
+              const timeA = new Date(a.calledAt).getTime() || 0;
+              const timeB = new Date(b.calledAt).getTime() || 0;
+              return timeB - timeA;
+            });
+          }
+          
+          const total = queues.length;
+          const paginatedQueues = queues.slice((page - 1) * 10, page * 10);
+          queues = paginatedQueues;
+          
+          currentPage = page;
+          totalPages = Math.ceil(total / 10);
+          
+          const tbody = document.getElementById('waiting-queues-body');
+          const operationTh = document.getElementById('operation-th');
+          
+          if (currentTab === 'waiting') {
+            operationTh.style.display = 'table-cell';
+            tbody.innerHTML = queues.map(queue => {
+              const st = queueBindStatusDisplay(queue.status);
+              return `
+                <tr>
+                  <td>${queue.手环编号}</td>
+                  <td>${queue.号码}</td>
+                  <td><span class="tag ${st.cls}">${st.text}</span></td>
+                  <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
+                  <td>-</td>
+                  <td>
+                    <button class="btn btn-primary btn-sm call-btn" data-number="${queue.号码}" data-activity="${activityId}">叫号</button>
+                  </td>
+                </tr>
+              `;
+            }).join('');
+          } else {
+            operationTh.style.display = 'none';
+            tbody.innerHTML = queues.map(queue => {
+              const st = queueBindStatusDisplay(queue.status);
+              return `
+                <tr>
+                  <td>${queue.手环编号}</td>
+                  <td>${queue.号码}</td>
+                  <td><span class="tag ${st.cls}">${st.text}</span></td>
+                  <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
+                  <td>${queue.calledAt ? new Date(queue.calledAt).toLocaleString() : '-'}</td>
+                  <td></td>
+                </tr>
+              `;
+            }).join('');
+          }
+          
+          if (queues.length === 0) {
+            const msg = currentTab === 'waiting' ? '暂无等待叫号记录' : '暂无已叫号记录';
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #999;">${msg}</td></tr>`;
+          }
+          
+          document.getElementById('queue-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+          document.getElementById('queue-pagination').style.display = 'block';
+          document.getElementById('queue-prev-page').disabled = currentPage <= 1;
+          document.getElementById('queue-next-page').disabled = currentPage >= totalPages;
+          
+          document.querySelectorAll('.call-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const number = e.target.dataset.number;
+              const actId = e.target.dataset.activity;
+              await doCall(actId, number);
+            });
+          });
+        } catch (error) {
           showMessage('error', '加载排队记录失败');
+        }
+      }
+      
+      async function doCall(activityId, number) {
+        try {
+          const response = await fetch(`${API_URL}/queue/call`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json', 
+              Authorization: localStorage.getItem('token') 
+            },
+            body: JSON.stringify({ activityId, number })
+          });
+          
+          if (response.ok) {
+            showMessage('success', `已叫号: ${number}`);
+            loadQueues(currentPage);
+            loadStatus();
+          } else {
+            const data = await response.json();
+            showMessage('error', data.error || '叫号失败');
+          }
+        } catch (error) {
+          showMessage('error', '网络错误');
         }
       }
       
@@ -832,7 +1441,7 @@
           });
           
           if (response.ok) {
-            showMessage('success', `已叫号: ${nextNumber}`);
+            showMessage('success', `已叫号入场: ${nextNumber}`);
             loadStatus();
             loadQueues();
           } else {
@@ -861,7 +1470,7 @@
           });
           
           if (response.ok) {
-            showMessage('success', `已叫号: ${number}`);
+            showMessage('success', `已叫号入场: ${number}`);
             document.getElementById('call-number').value = '';
             loadStatus();
             loadQueues();
@@ -875,12 +1484,64 @@
       }
       
       document.getElementById('call-activity').addEventListener('change', () => {
+        currentPage = 1;
         loadStatus();
-        loadQueues();
+        loadQueues(1);
       });
       
-      document.getElementById('call-next-btn').addEventListener('click', callNext);
       document.getElementById('call-manual-btn').addEventListener('click', callManual);
+      document.getElementById('queue-pause-btn').addEventListener('click', toggleQueuePause);
+      
+      document.getElementById('queue-prev-page').addEventListener('click', () => {
+        if (currentPage > 1) {
+          loadQueues(currentPage - 1);
+        }
+      });
+      
+      document.getElementById('queue-next-page').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+          loadQueues(currentPage + 1);
+        }
+      });
+      
+      document.getElementById('tab-waiting').addEventListener('click', () => {
+        currentTab = 'waiting';
+        currentPage = 1;
+        document.getElementById('tab-waiting').style.background = '#1890ff';
+        document.getElementById('tab-waiting').style.color = 'white';
+        document.getElementById('tab-called').style.background = 'transparent';
+        document.getElementById('tab-called').style.color = '#666';
+        loadQueues(1);
+      });
+      
+      document.getElementById('tab-called').addEventListener('click', () => {
+        currentTab = 'called';
+        currentPage = 1;
+        document.getElementById('tab-called').style.background = '#1890ff';
+        document.getElementById('tab-called').style.color = 'white';
+        document.getElementById('tab-waiting').style.background = 'transparent';
+        document.getElementById('tab-waiting').style.color = '#666';
+        loadQueues(1);
+      });
+      
+      document.getElementById('search-btn').addEventListener('click', () => {
+        currentPage = 1;
+        loadQueues(1);
+      });
+      
+      document.getElementById('search-bracelet').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+          currentPage = 1;
+          loadQueues(1);
+        }
+      });
+      
+      document.getElementById('search-number').addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') {
+          currentPage = 1;
+          loadQueues(1);
+        }
+      });
       
       loadActivities();
     }
@@ -904,17 +1565,29 @@
             </thead>
             <tbody id="users-table-body"></tbody>
           </table>
+          <div id="users-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+            <button id="users-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
+            <span id="users-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <button id="users-next-page" class="btn btn-default btn-small" disabled>下一页</button>
+          </div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
       
-      async function loadUsers() {
+      let currentPage = 1;
+      let totalPages = 1;
+      
+      async function loadUsers(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/users`, {
+          const response = await fetch(`${API_URL}/users?page=${page}&pageSize=10`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
-          const users = await response.json();
+          const data = await response.json();
+          const users = data.data || [];
+          currentPage = data.page || 1;
+          totalPages = data.totalPages || 1;
           renderUsers(users);
+          updateUsersPagination();
         } catch (error) {
           showMessage('error', '加载用户失败');
         }
@@ -939,6 +1612,12 @@
         if (users.length === 0) {
           tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
         }
+      }
+      
+      function updateUsersPagination() {
+        document.getElementById('users-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        document.getElementById('users-prev-page').disabled = currentPage <= 1;
+        document.getElementById('users-next-page').disabled = currentPage >= totalPages;
       }
       
       document.getElementById('add-user-btn').addEventListener('click', () => {
@@ -997,6 +1676,18 @@
         }
       };
       
+      document.getElementById('users-prev-page').addEventListener('click', () => {
+        if (currentPage > 1) {
+          loadUsers(currentPage - 1);
+        }
+      });
+      
+      document.getElementById('users-next-page').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+          loadUsers(currentPage + 1);
+        }
+      });
+      
       loadUsers();
     }
     
@@ -1019,17 +1710,29 @@
             </thead>
             <tbody id="roles-table-body"></tbody>
           </table>
+          <div id="roles-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+            <button id="roles-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
+            <span id="roles-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <button id="roles-next-page" class="btn btn-default btn-small" disabled>下一页</button>
+          </div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
       
-      async function loadRoles() {
+      let currentPage = 1;
+      let totalPages = 1;
+      
+      async function loadRoles(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/roles`, {
+          const response = await fetch(`${API_URL}/roles?page=${page}&pageSize=10`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
-          const roles = await response.json();
+          const data = await response.json();
+          const roles = data.data || [];
+          currentPage = data.page || 1;
+          totalPages = data.totalPages || 1;
           renderRoles(roles);
+          updateRolesPagination();
         } catch (error) {
           showMessage('error', '加载角色失败');
         }
@@ -1049,6 +1752,12 @@
         if (roles.length === 0) {
           tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
         }
+      }
+      
+      function updateRolesPagination() {
+        document.getElementById('roles-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        document.getElementById('roles-prev-page').disabled = currentPage <= 1;
+        document.getElementById('roles-next-page').disabled = currentPage >= totalPages;
       }
       
       function deleteRole(id) {
@@ -1125,6 +1834,18 @@
       
       window.deleteRole = deleteRole;
       
+      document.getElementById('roles-prev-page').addEventListener('click', () => {
+        if (currentPage > 1) {
+          loadRoles(currentPage - 1);
+        }
+      });
+      
+      document.getElementById('roles-next-page').addEventListener('click', () => {
+        if (currentPage < totalPages) {
+          loadRoles(currentPage + 1);
+        }
+      });
+      
       loadRoles();
     }
     
@@ -1132,51 +1853,138 @@
     function renderWechatUserManagement() {
       const html = `
         <div class="card">
-          <div class="card-title">微信用户管理</div>
+          <div class="form-inline">
+            <div class="form-group">
+              <label>昵称</label>
+              <input type="text" id="wechat-filter-nickname" class="form-control" placeholder="请输入昵称" style="width: 200px;" />
+            </div>
+            <div class="form-group">
+              <label>OpenID</label>
+              <input type="text" id="wechat-filter-openid" class="form-control" placeholder="请输入OpenID" style="width: 250px;" />
+            </div>
+            <button id="wechat-filter-btn" class="btn btn-primary">查询</button>
+            <button id="wechat-reset-btn" class="btn btn-default">重置</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">微信用户管理</span>
+          </div>
           <table class="table">
             <thead>
               <tr>
+                <th>头像</th>
+                <th>昵称</th>
                 <th>OpenID</th>
+                <th>UnionID</th>
                 <th>创建时间</th>
                 <th>最后登录</th>
                 <th>活动数量</th>
                 <th>绑定数量</th>
+                <th>员工状态</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="wechat-users-table-body"></tbody>
           </table>
+          <div id="wechat-pagination-container" class="pagination"></div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
       
-      async function loadWechatUsers() {
-        try {
-          const response = await fetch(`${API_URL}/wechat/users`, {
-            headers: { Authorization: localStorage.getItem('token') }
-          });
-          const data = await response.json();
-          renderWechatUsers(data.users || []);
-        } catch (error) {
-          showMessage('error', '加载微信用户失败');
-        }
-      }
+      let pagination = { current: 1, pageSize: 10, total: 0 };
       
       function renderWechatUsers(users) {
         const tbody = document.getElementById('wechat-users-table-body');
         tbody.innerHTML = users.map(user => `
           <tr>
-            <td>${user.openid}</td>
+            <td>
+              ${user.avatarUrl ? `<img src="${user.avatarUrl.startsWith('http') ? user.avatarUrl : window.location.origin + user.avatarUrl}" style="width: 40px; height: 40px; border-radius: 50%;" />` : '<span style="width: 40px; height: 40px; display: inline-block; background: #f5f5f5; border-radius: 50%; text-align: center; line-height: 40px;">👤</span>'}
+            </td>
+            <td>${user.nickName || '未设置'}</td>
+            <td title="${user.openid}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.openid}</td>
+            <td title="${user.unionid || ''}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.unionid || '-'}</td>
             <td>${user.createdAt ? new Date(user.createdAt).toLocaleString() : '-'}</td>
             <td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</td>
             <td>${user.activityCount || 0}</td>
             <td>${user.bindingCount || 0}</td>
-            <td><button class="btn btn-default btn-small" onclick="viewWechatUserActivities('${user.openid}')">查看活动</button></td>
+            <td>${user.isStaff ? '<span class="tag tag-green">是</span>' : '<span class="tag tag-gray">否</span>'}</td>
+            <td>
+              <button class="btn btn-default btn-small" onclick="viewWechatUserActivities('${user.openid}')">查看活动</button>
+              <button class="btn ${user.isStaff ? 'btn-warning' : 'btn-success'} btn-small" onclick="toggleStaff('${user.openid}', ${user.isStaff})">${user.isStaff ? '取消员工' : '设为员工'}</button>
+            </td>
           </tr>
         `).join('');
         
         if (users.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">暂无数据</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        }
+      }
+      
+      function renderPagination() {
+        const container = document.getElementById('wechat-pagination-container');
+        const totalPages = Math.ceil(pagination.total / pagination.pageSize);
+        
+        if (totalPages <= 1) {
+          container.innerHTML = '';
+          return;
+        }
+        
+        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>`;
+        for (let i = 1; i <= totalPages; i++) {
+          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" data-page="${i}">${i}</button>`;
+        }
+        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>`;
+        
+        container.innerHTML = html;
+        
+        container.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            if (btn.dataset.action === 'prev' && pagination.current > 1) {
+              pagination.current--;
+              loadWechatUsers();
+            } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
+              pagination.current++;
+              loadWechatUsers();
+            } else if (btn.dataset.page) {
+              pagination.current = parseInt(btn.dataset.page);
+              loadWechatUsers();
+            }
+          });
+        });
+      }
+      
+      async function loadWechatUsers() {
+        const filters = {
+          nickname: document.getElementById('wechat-filter-nickname').value,
+          openid: document.getElementById('wechat-filter-openid').value,
+          page: pagination.current,
+          pageSize: pagination.pageSize
+        };
+        
+        const params = new URLSearchParams(filters);
+        try {
+          const response = await fetch(`${API_URL}/wechat/users?${params}`, {
+            headers: { Authorization: 'Bearer ' + localStorage.getItem('token') }
+          });
+          
+          if (!response.ok) {
+            showMessage('error', '请求失败，状态码: ' + response.status);
+            return;
+          }
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            renderWechatUsers(data.data || []);
+            pagination.total = data.total || 0;
+            renderPagination();
+          } else {
+            showMessage('error', data.error || '加载失败');
+          }
+        } catch (error) {
+          showMessage('error', '加载微信用户失败: ' + error.message);
         }
       }
       
@@ -1184,41 +1992,162 @@
         fetch(`${API_URL}/wechat/user/${openid}/activities`, {
           headers: { Authorization: localStorage.getItem('token') }
         })
-        .then(response => response.json())
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('请求失败');
+          }
+          return response.json();
+        })
         .then(data => {
-          const activitiesHtml = data.activities.length > 0 ? `
+          const asCustomer = Array.isArray(data.asCustomer) ? data.asCustomer : [];
+          const asStaff = Array.isArray(data.asStaff) ? data.asStaff : [];
+          const legacy = Array.isArray(data.activities) ? data.activities : [];
+
+          function tableFromRows(rows, emptyText, timeKind) {
+            if (!rows.length) {
+              return `<p style="text-align:center;color:#999;padding:16px 8px;">${emptyText}</p>`;
+            }
+            const timeTh =
+              timeKind === 'staff'
+                ? '手环登记时间'
+                : timeKind === 'customer'
+                  ? '用户扫码绑定时间'
+                  : '手环登记时间';
+            function timeCell(act) {
+              if (timeKind === 'staff') {
+                return act.staffRegisteredAt ? new Date(act.staffRegisteredAt).toLocaleString() : '-';
+              }
+              if (timeKind === 'customer') {
+                if (act.userScanBoundAt) return new Date(act.userScanBoundAt).toLocaleString();
+                if (act.status === 'waiting') return '未扫码';
+                return '—';
+              }
+              return act.boundAt ? new Date(act.boundAt).toLocaleString() : '-';
+            }
+            return `
             <table class="table" style="margin-bottom: 0;">
               <thead>
-                <tr><th>活动ID</th><th>活动名称</th><th>手环编号</th><th>排号</th><th>状态</th><th>绑定时间</th></tr>
+                <tr><th>活动ID</th><th>活动名称</th><th>手环编号</th><th>排号</th><th>状态</th><th>${timeTh}</th></tr>
               </thead>
               <tbody>
-                ${data.activities.map(act => `<tr>
+                ${rows.map((act) => {
+                  const st = queueBindStatusDisplay(act.status);
+                  return `<tr>
                   <td>${act.activityId}</td>
                   <td>${act.activityName}</td>
                   <td>${act.braceletId}</td>
                   <td>${act.number}</td>
-                  <td><span class="tag tag-${act.status === 'waiting' ? 'blue' : 'green'}">${act.status === 'waiting' ? '等待中' : '已叫号'}</span></td>
-                  <td>${new Date(act.boundAt).toLocaleString()}</td>
-                </tr>`).join('')}
+                  <td><span class="tag ${st.cls}">${st.text}</span></td>
+                  <td>${timeCell(act)}</td>
+                </tr>`;
+                }).join('')}
               </tbody>
-            </table>
-          ` : '<p style="text-align: center; color: #999;">暂无活动记录</p>';
-          
-          createModal({
-            title: `用户 ${openid} 的活动记录`,
-            body: activitiesHtml
+            </table>`;
+          }
+
+          const hasSplitTabs = data.asCustomer !== undefined && data.asStaff !== undefined;
+          const body = hasSplitTabs
+              ? `
+            <div class="wx-user-act-wrap">
+              <div style="display:flex;gap:0;margin-bottom:12px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap;">
+                <button type="button" class="wx-user-act-tab btn btn-primary active" data-pane="cust" style="border-radius:4px 4px 0 0;margin-bottom:-1px;">作为用户 · 扫码领取手环</button>
+                <button type="button" class="wx-user-act-tab btn btn-default" data-pane="staff" style="border-radius:4px 4px 0 0;margin-bottom:-1px;margin-left:8px;">作为员工 · 小程序绑定手环</button>
+              </div>
+              <div class="wx-user-act-pane" data-pane="cust">${tableFromRows(asCustomer, '暂无：该用户扫码领取绑定的手环记录', 'customer')}</div>
+              <div class="wx-user-act-pane" data-pane="staff" style="display:none;">${tableFromRows(asStaff, '暂无：该用户在员工端绑定的手环记录', 'staff')}</div>
+            </div>`
+              : tableFromRows(legacy.length ? legacy : [...asCustomer, ...asStaff], '暂无活动记录', null);
+
+          const modal = createModal({
+            title: `用户 ${openid} 的手环记录`,
+            body
           });
+          const wrap = modal.querySelector('.wx-user-act-wrap');
+          if (wrap) {
+            wrap.querySelectorAll('.wx-user-act-tab').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                const pane = btn.getAttribute('data-pane');
+                wrap.querySelectorAll('.wx-user-act-tab').forEach((b) => {
+                  b.classList.remove('active', 'btn-primary');
+                  b.classList.add('btn-default');
+                });
+                btn.classList.add('active', 'btn-primary');
+                btn.classList.remove('btn-default');
+                wrap.querySelectorAll('.wx-user-act-pane').forEach((p) => {
+                  p.style.display = p.getAttribute('data-pane') === pane ? '' : 'none';
+                });
+              });
+            });
+          }
         })
-        .catch(error => showMessage('error', '加载失败'));
+        .catch(error => showMessage('error', '加载失败: ' + error.message));
       }
       
       window.viewWechatUserActivities = viewWechatUserActivities;
       
+      async function toggleStaff(openid, currentStatus) {
+        const newStatus = !currentStatus;
+        try {
+          const response = await fetch(`${API_URL}/wechat/user/${openid}/staff`, {
+            method: 'PUT',
+            headers: { 
+              Authorization: 'Bearer ' + localStorage.getItem('token'),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ isStaff: newStatus })
+          });
+          
+          if (!response.ok) {
+            throw new Error('请求失败');
+          }
+          
+          const data = await response.json();
+          if (data.success) {
+            showMessage('success', data.message);
+            loadWechatUsers();
+          } else {
+            showMessage('error', data.error || '操作失败');
+          }
+        } catch (error) {
+          showMessage('error', '操作失败: ' + error.message);
+        }
+      }
+      
+      window.toggleStaff = toggleStaff;
+      
+      // 绑定查询按钮事件
+      const filterBtn = document.getElementById('wechat-filter-btn');
+      if (filterBtn) {
+        filterBtn.addEventListener('click', () => {
+          pagination.current = 1;
+          loadWechatUsers();
+        });
+      } else {
+        console.error('未找到 wechat-filter-btn 元素');
+      }
+      
+      // 绑定重置按钮事件
+      const resetBtn = document.getElementById('wechat-reset-btn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          document.getElementById('wechat-filter-nickname').value = '';
+          document.getElementById('wechat-filter-openid').value = '';
+          pagination.current = 1;
+          loadWechatUsers();
+        });
+      } else {
+        console.error('未找到 wechat-reset-btn 元素');
+      }
+      
+      // 首次加载数据
       loadWechatUsers();
     }
     
     // Main Layout
+    let currentUser = null;
+    
     function renderMainLayout(user) {
+      currentUser = user;
       const html = `
         <div class="layout">
           <div class="layout-header">
@@ -1232,7 +2161,7 @@
             <div class="layout-sider">
               <ul class="menu">
                 <li class="menu-item active" id="menu-activity"><span>活动管理</span></li>
-                <li class="menu-item" id="menu-bind"><span>手环绑定</span></li>
+                <li class="menu-item" id="menu-bind"><span>登记手环</span></li>
                 <li class="menu-item" id="menu-queue"><span>叫号管理</span></li>
                 <li class="menu-item" id="menu-users"><span>用户管理</span></li>
                 <li class="menu-item" id="menu-roles"><span>角色管理</span></li>

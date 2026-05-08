@@ -1,0 +1,274 @@
+/* 浅底 + 白卡片，少图标，靠字号与色块分层（贴近设计稿） */
+.page {
+  min-height: 100vh;
+  background: #e8edf5;
+  box-sizing: border-box;
+  padding: 20rpx 24rpx calc(28rpx + env(safe-area-inset-bottom));
+}
+
+.state {
+  text-align: center;
+  color: #8a93a3;
+  font-size: 28rpx;
+  padding: 120rpx 32rpx;
+}
+
+.empty-wrap {
+  margin-top: 100rpx;
+  padding: 56rpx 40rpx;
+  text-align: center;
+}
+
+.empty-title {
+  display: block;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1f2430;
+  margin-bottom: 16rpx;
+  letter-spacing: 0.02em;
+}
+
+.empty-sub {
+  display: block;
+  font-size: 26rpx;
+  color: #8a93a3;
+  line-height: 1.55;
+  max-width: 520rpx;
+  margin: 0 auto;
+}
+
+.list {
+  height: calc(100vh - 40rpx - env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.list-tail {
+  height: 24rpx;
+}
+
+.card {
+  background: #fff;
+  border-radius: 28rpx;
+  margin-bottom: 22rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 24rpx rgba(31, 56, 88, 0.06);
+}
+
+.card-top {
+  padding: 36rpx 36rpx 28rpx;
+}
+
+.act-name {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #141822;
+  line-height: 1.35;
+  margin-bottom: 10rpx;
+  letter-spacing: 0.01em;
+}
+
+.claim-time {
+  display: block;
+  font-size: 26rpx;
+  color: #8a93a3;
+  line-height: 1.4;
+}
+
+.number-block {
+  padding: 8rpx 36rpx 32rpx;
+  text-align: center;
+}
+
+.number-label {
+  display: block;
+  font-size: 26rpx;
+  color: #8a93a3;
+  margin-bottom: 12rpx;
+  letter-spacing: 0.06em;
+}
+
+.queue-number {
+  display: block;
+  font-size: 132rpx;
+  font-weight: 700;
+  color: #2f6bff;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+/* 中间虚线分隔 */
+.rule-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  padding: 0 36rpx 8rpx;
+}
+
+.rule-dot {
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: #d5dbe8;
+}
+
+.ahead-wrap {
+  padding: 16rpx 36rpx 0;
+}
+
+/* 前方人数：浅蓝信息条 + 左侧蓝条，与下方「预计等待」区明显区分 */
+.ahead-bar {
+  padding: 22rpx 28rpx 22rpx 24rpx;
+  background: #f0f4ff;
+  border-radius: 16rpx;
+  border: 1rpx solid #dce6ff;
+  border-left: 8rpx solid #2f6bff;
+  text-align: center;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.ahead-txt {
+  font-size: 28rpx;
+  color: #3d4659;
+}
+
+.ahead-num {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #2f6bff;
+  padding: 0 4rpx;
+}
+
+.ahead-plain {
+  font-size: 28rpx;
+  color: #3d4659;
+  line-height: 1.45;
+}
+
+/* 原「暂停排队」按钮位置：只读状态条，沿用圆角描边样式，文案来自 queueStateTitle */
+.queue-status-wrap {
+  padding: 24rpx 36rpx 0;
+}
+
+.queue-status {
+  width: 100%;
+  min-height: 88rpx;
+  padding: 20rpx 24rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 44rpx;
+  border-width: 2rpx;
+  border-style: solid;
+  background: #fff;
+}
+
+.queue-status-txt {
+  font-size: 30rpx;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.35;
+}
+
+.queue-status.state-paused {
+  border-color: #f0a04d;
+  color: #e67e22;
+}
+
+.queue-status.state-paused .queue-status-txt {
+  color: #e67e22;
+}
+
+.queue-status.state-slow {
+  border-color: #e8c26a;
+  background: #fffdf8;
+}
+
+.queue-status.state-slow .queue-status-txt {
+  color: #b8860b;
+}
+
+.queue-status.state-unknown {
+  border-color: #d9dde5;
+  background: #fafbfc;
+}
+
+.queue-status.state-unknown .queue-status-txt {
+  color: #6b7280;
+}
+
+/* 预计等待：中性底 + 青绿时间向强调，避免与上方浅蓝「前方人数」同质 */
+.wait-panel {
+  padding: 0;
+  background: #f8fafc;
+  border-radius: 20rpx;
+  border: 1rpx solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 4rpx 20rpx rgba(15, 23, 42, 0.05);
+}
+
+.wait-head {
+  padding: 20rpx 28rpx 12rpx;
+  border-bottom: 1rpx solid #eef2f7;
+  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+}
+
+.wait-title {
+  display: block;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.08em;
+}
+
+.wait-value-shell {
+  padding: 24rpx 28rpx 28rpx;
+  border-left: 8rpx solid #0d9488;
+  background: #fff;
+}
+
+.wait-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.wait-pre,
+.wait-suf {
+  font-size: 28rpx;
+  color: #475569;
+  font-weight: 500;
+}
+
+.wait-mid {
+  font-size: 48rpx;
+  font-weight: 700;
+  color: #0f766e;
+  padding: 0 8rpx;
+  line-height: 1.05;
+}
+
+.wait-single {
+  display: block;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #0f766e;
+  line-height: 1.5;
+}
+
+.foot-note {
+  padding: 28rpx 36rpx 36rpx;
+}
+
+.foot-note-txt {
+  display: block;
+  text-align: center;
+  font-size: 24rpx;
+  color: #9aa3b5;
+  line-height: 1.55;
+}

@@ -1,0 +1,43 @@
+<view class="container">
+  <!-- 用户信息区域 -->
+  <view class="user-info">
+    <view class="avatar" bindtap="handleAvatarClick" catchtap="handleAvatarClick">
+      <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+      <text wx:else class="avatar-icon">👤</text>
+    </view>
+    <view class="user-detail">
+      <text class="user-name">{{userName || '微信用户'}}</text>
+      <text class="user-id" bindtap="handleIdClick" catchtap="handleIdClick">ID: {{userId || '未绑定'}}</text>
+    </view>
+  </view>
+  
+  <!-- 功能菜单 -->
+  <view class="menu-list">
+    <!-- 登记手环（隐藏） -->
+    <view wx:if="{{showStaffMenu}}" class="menu-item staff-menu-item" bindtap="goToStaffCenter" catchtap="goToStaffCenter">
+      <text class="menu-title">登记手环</text>
+      <view class="menu-arrow">›</view>
+    </view>
+    
+    <!-- 叫号验证（隐藏） -->
+    <view wx:if="{{showStaffMenu}}" class="menu-item staff-menu-item" bindtap="goToQueueVerify" catchtap="goToQueueVerify">
+      <text class="menu-title">叫号验证</text>
+      <view class="menu-arrow">›</view>
+    </view>
+    
+    <view class="menu-item" bindtap="goToMyBindings">
+      <text class="menu-title">我的绑定</text>
+      <view class="menu-arrow">›</view>
+    </view>
+    
+    <view class="menu-item" bindtap="goToAbout">
+      <text class="menu-title">关于我们</text>
+      <view class="menu-arrow">›</view>
+    </view>
+  </view>
+  
+  <!-- 退出登录 -->
+  <view class="logout-section">
+    <button class="logout-btn" bindtap="logout">退出登录</button>
+  </view>
+</view>

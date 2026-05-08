@@ -1,106 +1,398 @@
-/* index.wxss */
 .container {
-  min-height: 100vh;
-  background-color: #f5f5f5;
+  height: 100vh;
+  background: #ffffff;
+  padding-bottom: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 背景图容器 */
+.background-container {
+  position: absolute;
+  top: 180rpx;
+  left: 0;
+  width: 100%;
+  bottom: 250rpx;
+}
+
+/* 白色背景层（底层） */
+.white-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  z-index: 1;
+}
+
+/* 背景图（PNG 图片，在白色遮罩上面） */
+.background-image {
+  position: absolute;
+  top: -10rpx;
+  left: -5%;
+  width: 110%;
+  height: auto;
+  object-fit: contain;
+  opacity: 0.75;
+  z-index: 2;
+}
+
+/* 右上角头像入口 */
+.user-center-btn {
+  position: fixed;
+  top: 60rpx;
+  right: 30rpx;
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+}
+
+.user-icon {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.bind-btn {
-  width: 80%;
-  max-width: 500rpx;
-  height: 90rpx;
-  background-color: #1989fa;
-  color: #fff;
-  font-size: 36rpx;
-  border-radius: 45rpx;
-  box-shadow: 0 4rpx 12rpx rgba(25, 137, 250, 0.3);
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
 }
 
-/* 排队状态卡片样式 */
-.header {
+.icon-text {
+  font-size: 32rpx;
+}
+
+/* 未授权状态提示 */
+.unauth-hint {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 100rpx;
+  position: relative;
+  z-index: 1;
+}
+
+.hint-text {
+  font-size: 24rpx;
+  color: #cccccc;
+}
+
+/* 已授权状态 */
+.auth-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: 100rpx;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+}
+
+.user-info {
   text-align: center;
-  margin-bottom: 60rpx;
-  padding-top: 60rpx;
+  margin-bottom: 40rpx;
 }
 
-.title {
-  font-size: 40rpx;
+.welcome-text {
+  font-size: 36rpx;
+  color: #333333;
   font-weight: bold;
-  color: #333;
-  margin-bottom: 15rpx;
 }
 
-.subtitle {
-  font-size: 28rpx;
-  color: #666;
+/* 已绑定手环提示横幅（位于绑定按钮上方） */
+.binding-banner-wrap {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 200rpx;
+  width: 86%;
+  max-width: 640rpx;
+  z-index: 998;
+  box-sizing: border-box;
 }
 
-.status-card {
-  background-color: #fff;
+.binding-banner-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 32rpx;
+  background: #ffffff;
+  border: 3rpx solid rgba(102, 126, 234, 0.62);
   border-radius: 20rpx;
-  padding: 40rpx;
-  margin: 20rpx 0;
-  box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.08);
 }
 
-.status-item {
+.binding-banner-texts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+.binding-banner-title {
+  font-size: 28rpx;
+  color: #333333;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.binding-banner-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: #667eea;
+  line-height: 1.4;
+}
+
+.binding-banner-arrow {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  font-size: 44rpx;
+  color: #667eea;
+  font-weight: 300;
+  line-height: 1;
+}
+
+/* 绑定手环码按钮容器 */
+.bind-button-container {
+  position: absolute;
+  bottom: 60rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  z-index: 999;
+}
+
+/* 绑定手环码按钮 */
+.bind-button {
+  width: 100%;
+  height: 100rpx;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  font-size: 32rpx;
+  font-weight: bold;
+  border-radius: 50rpx;
+  border: none;
+  box-shadow: 0 8rpx 24rpx rgba(102, 126, 234, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 弹窗遮罩 */
+.modal-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-container {
+  width: 80%;
+  max-width: 620rpx;
+  background: #fff;
+  border-radius: 13rpx;
+  overflow: hidden;
+}
+
+.modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 30rpx 0;
-  border-bottom: 1rpx solid #f0f0f0;
+  padding: 30rpx 40rpx;
+  border-bottom: 1rpx solid #eee;
 }
 
-.status-item:last-child {
-  border-bottom: none;
-}
-
-.status-item .label {
-  font-size: 28rpx;
-  color: #666;
-}
-
-.status-item .value {
-  font-size: 32rpx;
-  color: #333;
-  font-weight: 500;
-}
-
-.status-item .value.highlight {
-  color: #1989fa;
+.modal-title {
+  font-size: 34rpx;
   font-weight: bold;
-  font-size: 36rpx;
+  color: #333;
 }
 
-.actions {
-  margin: 40rpx 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20rpx;
-}
-
-.btn {
-  width: 100%;
-  max-width: 500rpx;
-  height: 90rpx;
-  font-size: 32rpx;
-  border-radius: 45rpx;
-  margin: 0;
+.modal-close {
+  width: 60rpx;
+  height: 60rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 48rpx;
+  color: #999;
 }
 
-.primary-btn {
-  background-color: #1989fa;
+.modal-body {
+  padding: 40rpx;
+  text-align: center;
+}
+
+.modal-icon {
+  font-size: 80rpx;
+  margin-bottom: 20rpx;
+}
+
+.modal-desc {
+  font-size: 28rpx;
+  color: #666;
+  line-height: 1.6;
+}
+
+/* 授权表单 - 微信原生风格 */
+.auth-form-modal {
+  width: 80%;
+  max-width: 620rpx;
+}
+
+.auth-form-body {
+  text-align: center;
+  padding: 48rpx 48rpx 48rpx;
+}
+
+/* 头像区域 */
+.avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 40rpx;
+}
+
+.avatar-btn {
+  width: 200rpx;
+  height: 200rpx;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 4rpx solid #ddd;
+  background: #f8f8f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24rpx;
+  padding: 0;
+}
+
+.avatar-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.avatar-default {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f8f8;
+}
+
+.avatar-icon {
+  font-size: 80rpx;
+}
+
+.avatar-tip {
+  font-size: 28rpx;
+  color: #999;
+}
+
+/* 昵称区域 */
+.nickname-section {
+  width: 100%;
+}
+
+.auth-form-body .nickname-input {
+  width: 100%;
+  height: 80rpx;
+  line-height: 80rpx;
+  padding: 0 32rpx;
+  background: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 32rpx;
+  color: #333;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.auth-form-body .nickname-input::placeholder {
+  color: #999;
+}
+
+/* 底部按钮 */
+.auth-form-footer {
+  display: flex;
+  border-top: 1rpx solid #e5e5e5;
+}
+
+.auth-form-footer .btn {
+  flex: 1;
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  font-size: 32rpx;
+  border-radius: 0;
+  border: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.auth-form-footer .cancel-btn {
+  color: #666666;
+  background: #fff;
+}
+
+.auth-form-footer .confirm-btn {
+  color: #07c160;
+  background: #fff;
+}
+
+.auth-form-footer .confirm-btn[disabled] {
+  color: #ccc;
+}
+
+/* 弹窗底部按钮 */
+.modal-footer {
+  display: flex;
+  border-top: 1rpx solid #eee;
+}
+
+.modal-footer .cancel-btn {
+  flex: 1;
+  height: 90rpx;
+  background: #f5f5f5;
+  color: #666;
+  font-size: 30rpx;
+  border-radius: 0;
+}
+
+.modal-footer .confirm-btn {
+  flex: 1;
+  height: 90rpx;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
-  box-shadow: 0 4rpx 12rpx rgba(25, 137, 250, 0.3);
+  font-size: 30rpx;
+  font-weight: bold;
+  border-radius: 0;
 }
 
-.secondary-btn {
-  background-color: #fff;
-  color: #1989fa;
-  border: 2rpx solid #1989fa;
+.modal-footer .confirm-btn[disabled] {
+  opacity: 0.5;
 }

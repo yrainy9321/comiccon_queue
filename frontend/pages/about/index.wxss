@@ -1,0 +1,58 @@
+.page {
+  min-height: 100vh;
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  padding: 40rpx 32rpx;
+}
+
+.footer {
+  padding: 40rpx 32rpx 60rpx;
+  text-align: center;
+}
+
+.header-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24rpx;
+}
+
+.logo-icon {
+  width: 240rpx;
+  height: 240rpx;
+  border-radius: 60rpx;
+}
+
+.divider {
+  width: 60rpx;
+  height: 3rpx;
+  background: #e8e8e8;
+  margin: 0 auto 24rpx;
+}
+
+.desc-card {
+  background: #ffffff;
+  padding: 36rpx 48rpx;
+}
+
+.desc-text {
+  display: block;
+  font-size: 28rpx;
+  color: #444;
+  line-height: 1.65;
+  text-align: justify;
+  margin-bottom: 24rpx;
+}
+
+.desc-text:last-child {
+  margin-bottom: 0;
+}
+
+.footer-text {
+  font-size: 22rpx;
+  color: #999;
+}

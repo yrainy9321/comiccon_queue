@@ -1,0 +1,66 @@
+<view class="page">
+  <view class="group">
+    <view class="cell cell-picker">
+      <text class="cell-title">选择活动</text>
+      <picker mode="selector" range="{{activityNames}}" bindchange="selectActivity">
+        <view class="cell-bd">
+          <text class="cell-value {{selectedActivityName ? 'is-on' : 'is-ph'}}">{{selectedActivityName ? selectedActivityName : '请选择活动'}}</text>
+          <text class="cell-accessory">›</text>
+        </view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="group">
+    <view class="cell cell-input-row">
+      <text class="cell-title">手环编码</text>
+      <input
+        class="cell-input"
+        type="text"
+        maxlength="128"
+        placeholder="中英文大小写、数字、标点与符号，MG#共27位"
+        value="{{braceletCode}}"
+        bindinput="inputBraceletCode"
+      />
+      <button class="cell-btn-mini" type="default" size="mini" bindtap="scanBracelet" disabled="{{isScanning}}">扫码</button>
+    </view>
+  </view>
+
+  <view class="footer">
+    <button type="primary" bindtap="verifyQueue" disabled="{{isSubmitting}}" loading="{{isSubmitting}}">
+      验证叫号
+    </button>
+  </view>
+
+  <view wx:if="{{verifyResult}}" class="result-card">
+    <view class="result-header {{verifyResult.headerClass}}">
+      <text class="result-icon">{{verifyResult.headerIcon}}</text>
+      <text class="result-title">{{verifyResult.headerTitle}}</text>
+    </view>
+    <view wx:if="{{verifyResult.data}}" class="result-info">
+      <view class="result-row">
+        <text class="result-label">活动名称</text>
+        <text class="result-value">{{verifyResult.data.activityName}}</text>
+      </view>
+      <view class="result-row">
+        <text class="result-label">手环编码</text>
+        <text class="result-value mono">{{verifyResult.data.braceletCode}}</text>
+      </view>
+      <view class="result-row">
+        <text class="result-label">排号</text>
+        <text class="result-value num">{{verifyResult.data.queueNumber}}</text>
+      </view>
+      <view class="result-row">
+        <text class="result-label">当前状态</text>
+        <text class="result-value st-{{verifyResult.data.status}}">{{verifyResult.data.statusText}}</text>
+      </view>
+      <view class="result-row">
+        <text class="result-label">叫号时间</text>
+        <text class="result-value">{{verifyResult.data.calledAtText}}</text>
+      </view>
+    </view>
+    <view wx:if="{{verifyResult.message && !verifyResult.data}}" class="result-msg {{verifyResult.msgClass}}">
+      {{verifyResult.message}}
+    </view>
+  </view>
+</view>

@@ -1,38 +1,88 @@
-<view class="container">
-  <!-- 未绑定状态：只显示扫码按钮 -->
-  <block wx:if="{{!hasBinding}}">
-    <button class="btn bind-btn" bindtap="scanCode">扫码绑定</button>
-  </block>
+<view class="container" bindtap="handleGlobalClick">
+  <!-- 背景图容器 -->
+  <view class="background-container">
+    <!-- 白色背景层 -->
+    <view class="white-background"></view>
+    <!-- PNG 图片 -->
+    <image class="background-image" src="/xiaochengxu_compressed.jpg" mode="widthFix"></image>
+  </view>
+  <!-- 右上角头像入口 -->
+  <view class="user-center-btn" bindtap="goToUserCenter" catchtap="goToUserCenter">
+    <view class="user-icon">
+      <image wx:if="{{userAvatar}}" class="avatar-img" src="{{userAvatar}}" />
+      <text wx:else class="icon-text">👤</text>
+    </view>
+  </view>
+  
+  <!-- 未授权状态提示 -->
+  <view wx:if="{{!hasAuth}}" class="unauth-hint">
+    <text class="hint-text">点击任意区域授权后获取完整服务</text>
+  </view>
+  
+  <!-- 已授权状态：显示用户信息 -->
+  <view wx:else class="auth-content">
+    <view class="user-info">
+      <text class="welcome-text">欢迎回来，{{userNickName || '用户'}}</text>
+    </view>
+  </view>
 
-  <!-- 已绑定状态：显示排队信息 -->
-  <block wx:else>
-    <view class="header">
-      <text class="title">{{activityName}}</text>
-      <text class="subtitle">排队状态</text>
+  <!-- 已绑定手环横幅：与「我的绑定」同源计数，点击查看排队进度 -->
+  <view wx:if="{{hasAuth && showBindingBanner}}" class="binding-banner-wrap" catchtap="goToMyBindings">
+    <view class="binding-banner-inner">
+      <view class="binding-banner-texts">
+        <text class="binding-banner-title">当前已绑定 {{boundBraceletCount}} 个手环码</text>
+        <text class="binding-banner-sub">点击查看排队进度</text>
+      </view>
+      <text class="binding-banner-arrow">›</text>
     </view>
-    
-    <view class="status-card">
-      <view class="status-item">
-        <text class="label">活动名称</text>
-        <text class="value">{{activityName}}</text>
+  </view>
+  
+  <!-- 底部绑定手环码按钮（所有状态都显示） -->
+  <view class="bind-button-container">
+    <button class="bind-button" bindtap="handleBindBracelet">点击绑定手环码</button>
+  </view>
+  
+  <!-- 授权弹窗：昵称和头像填写表单 -->
+  <view wx:if="{{showAuthModal2}}" class="modal-mask">
+    <view class="modal-container auth-form-modal" catchtap="onModalContainerTap">
+      <view class="modal-body auth-form-body">
+        <!-- 头像选择 -->
+        <view class="avatar-section">
+          <button 
+            class="avatar-btn"
+            open-type="chooseAvatar"
+            bindchooseavatar="onChooseAvatar"
+          >
+            <image wx:if="{{tempAvatar}}" class="avatar-circle" src="{{tempAvatar}}" />
+            <view wx:else class="avatar-default">
+              <text class="avatar-icon">👤</text>
+            </view>
+          </button>
+          <text class="avatar-tip">点击更换头像</text>
+        </view>
+        
+        <!-- 昵称填写 -->
+        <view class="nickname-section">
+          <input 
+            class="nickname-input" 
+            type="nickname"
+            placeholder="请输入昵称" 
+            value="{{tempNickName}}" 
+            bindblur="onNickNameBlur"
+            bindinput="onNickNameInput"
+          />
+        </view>
       </view>
-      <view class="status-item">
-        <text class="label">手环号码</text>
-        <text class="value">{{braceletId}}</text>
-      </view>
-      <view class="status-item">
-        <text class="label">您的号码</text>
-        <text class="value highlight">{{userNumber}}</text>
-      </view>
-      <view class="status-item">
-        <text class="label">前方还有</text>
-        <text class="value highlight">{{queueCount}} 人</text>
+      <view class="modal-footer auth-form-footer">
+        <button class="btn cancel-btn" bindtap="closeAuthModal2">取消</button>
+        <button 
+          class="btn confirm-btn" 
+          bindtap="submitAuthForm" 
+          disabled="{{!tempNickName || !tempAvatar}}"
+        >
+          确认授权
+        </button>
       </view>
     </view>
-    
-    <view class="actions">
-      <button class="btn primary-btn" bindtap="refreshStatus">刷新状态</button>
-      <button class="btn secondary-btn" bindtap="scanCode">重新绑定</button>
-    </view>
-  </block>
+  </view>
 </view>

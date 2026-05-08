@@ -13,6 +13,10 @@
       <text class="label">您的号码</text>
       <text class="value">{{userNumber || '未绑定'}}</text>
     </view>
+    <view class="status-item" wx:if="{{queueStatusText}}">
+      <text class="label">排队状态</text>
+      <text class="value">{{queueStatusText}}</text>
+    </view>
     <view class="status-item">
       <text class="label">前方还有</text>
       <text class="value">{{queueCount}}</text>

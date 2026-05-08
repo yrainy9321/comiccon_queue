@@ -3,7 +3,12 @@
     "pages/index/index",
     "pages/status/index",
     "pages/bind/index",
-    "pages/test-login/index"
+    "pages/user-center/index",
+    "pages/my-bindings/index",
+    "pages/staff-center/index",
+    "pages/test-login/index",
+    "pages/about/index",
+    "pages/queue-verify/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

@@ -1,5 +1,6 @@
 // bind.js
 const app = getApp();
+const { validateBraceletIdStrictMg27 } = require('../../utils/braceletId.js');
 
 Page({
   data: {
@@ -33,7 +34,12 @@ Page({
         if (parts.length >= 2) {
           const activityId = parts[0];
           const braceletId = parts[1];
-          this.bindBraceletWithInfo(activityId, braceletId);
+          const bc = validateBraceletIdStrictMg27(braceletId);
+          if (!bc.ok) {
+            wx.showToast({ title: bc.error, icon: 'none', duration: 2800 });
+            return;
+          }
+          this.bindBraceletWithInfo(activityId, bc.value);
         } else {
           wx.showToast({ title: '二维码格式错误', icon: 'none' });
         }
@@ -47,6 +53,12 @@ Page({
 
   // 使用扫码信息绑定
   bindBraceletWithInfo(activityId, braceletId) {
+    const bc = validateBraceletIdStrictMg27(braceletId);
+    if (!bc.ok) {
+      wx.showToast({ title: bc.error, icon: 'none', duration: 2800 });
+      return;
+    }
+    const bid = bc.value;
     wx.showLoading({ title: '绑定中...' });
     
     app.getUserInfo().then(userInfo => {
@@ -57,7 +69,7 @@ Page({
         method: 'POST',
         data: {
           activityId: activityId,
-          手环编号: braceletId,
+          手环编号: bid,
           mode: 'auto',
           userId: openid,
           openid: openid
@@ -76,7 +88,7 @@ Page({
               success: () => {
                 setTimeout(() => {
                   wx.redirectTo({
-                    url: `/pages/status/index?activityId=${activityId}&braceletId=${braceletId}`
+                    url: `/pages/status/index?activityId=${activityId}&braceletId=${bid}`
                   });
                 }, 1000);
               }
@@ -153,9 +165,17 @@ Page({
       return;
     }
 
+    const bc = validateBraceletIdStrictMg27(this.data.braceletId);
+    if (!bc.ok) {
+      wx.showToast({ title: bc.error, icon: 'none', duration: 2800 });
+      return;
+    }
+    const bid = bc.value;
+    this.setData({ braceletId: bid });
+
     const data = {
       activityId: this.data.selectedActivity._id,
-      braceletId: this.data.braceletId,
+      braceletId: bid,
       mode: this.data.modeIndex === 0 ? 'sequential' : 'random'
     };
     
@@ -164,7 +184,7 @@ Page({
     }
 
     // 先绑定手环到微信用户（用于消息推送）
-    this.bindBraceletToWechat(() => {
+    this.bindBraceletToWechat(bid, () => {
       // 然后绑定排队
       wx.request({
         url: app.globalData.API_URL + '/queue/bind',
@@ -179,7 +199,7 @@ Page({
               success: () => {
                 setTimeout(() => {
                   wx.navigateTo({
-                    url: `/pages/status/index?activityId=${this.data.selectedActivity._id}&braceletId=${this.data.braceletId}`
+                    url: `/pages/status/index?activityId=${this.data.selectedActivity._id}&braceletId=${bid}`
                   });
                 }, 1000);
               }
@@ -196,7 +216,7 @@ Page({
   },
 
   // 绑定手环到微信用户（用于接收消息推送）
-  bindBraceletToWechat(callback) {
+  bindBraceletToWechat(braceletId, callback) {
     app.getUserInfo().then(userInfo => {
       if (!userInfo || !userInfo.token) {
         console.log('未获取到微信用户信息，跳过手环绑定');
@@ -211,7 +231,7 @@ Page({
           'Authorization': `Bearer ${userInfo.token}`
         },
         data: {
-          braceletId: this.data.braceletId
+          braceletId: braceletId
         },
         success: (res) => {
           if (res.statusCode === 200 && res.data.success) {
