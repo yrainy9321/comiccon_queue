@@ -9,7 +9,12 @@
   <!-- 右上角头像入口 -->
   <view class="user-center-btn" bindtap="goToUserCenter" catchtap="goToUserCenter">
     <view class="user-icon">
-      <image wx:if="{{userAvatar}}" class="avatar-img" src="{{userAvatar}}" />
+      <image
+        wx:if="{{userAvatar}}"
+        class="avatar-img"
+        src="{{userAvatar}}"
+        mode="aspectFill"
+      />
       <text wx:else class="icon-text">👤</text>
     </view>
   </view>

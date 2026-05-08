@@ -7,8 +7,7 @@ function resolveAvatarDisplayUrl(raw) {
   const t = raw.trim();
   if (!t) return '';
   if (/^https?:\/\//i.test(t)) return t;
-  // 真机重启后 wxfile:// 临时路径失效，不在此展示
-  if (t.indexOf('wxfile://') === 0 || t.indexOf('http://tmp') === 0) return '';
+  if (t.startsWith('wxfile://') || t.indexOf('http://tmp/') === 0) return t;
   const api = String(app.globalData.API_URL || '').replace(/\/$/, '');
   const origin = api.replace(/\/api$/i, '');
   if (!origin) return t;
@@ -78,7 +77,7 @@ Page({
       }
 
       const d = res.data;
-      const displayAvatar = resolveAvatarDisplayUrl(d.avatarUrl);
+      const displayAvatar = resolveAvatarDisplayUrl(d.avatarDisplayUrl || d.avatarUrl);
       const merged = {
         ...cached,
         openid: d.openid || cached.openid,

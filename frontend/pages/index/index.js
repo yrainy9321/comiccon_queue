@@ -6,6 +6,23 @@ const {
   SUBSCRIBE_TMPL_QUEUE_REMINDER
 } = require('../../config.js');
 
+/**
+ * 头像展示 URL：完整 http(s) 原样；wxfile/http://tmp 本地临时图原样（勿清空）；
+ * 否则按 API_URL 推导站点根 + 相对路径。
+ */
+function resolveAvatarDisplayUrl(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const t = raw.trim();
+  if (!t) return '';
+  if (/^https?:\/\//i.test(t)) return t;
+  if (t.startsWith('wxfile://') || t.indexOf('http://tmp/') === 0) return t;
+  const api = String(app.globalData.API_URL || '').replace(/\/$/, '');
+  const origin = api.replace(/\/api$/i, '');
+  if (!origin) return t;
+  if (t.startsWith('/')) return `${origin}${t}`;
+  return `${origin}/${t.replace(/^\//, '')}`;
+}
+
 Page({
   data: {
     userId: '',
@@ -39,17 +56,20 @@ Page({
       const userInfo = await app.getUserInfo();
       console.log('【页面初始化】用户信息:', userInfo);
       
-      this.setData({ 
+      const rawAv = userInfo.userInfo?.avatarUrl || userInfo.avatarUrl || '';
+      this.setData({
         userId: userInfo.openid,
         openid: userInfo.openid,
         hasAuth: userInfo.hasAuth || false,
-        userAvatar: userInfo.userInfo?.avatarUrl || userInfo.avatarUrl || '',
+        userAvatar: resolveAvatarDisplayUrl(rawAv),
         userNickName: userInfo.userInfo?.nickName || userInfo.nickName || '',
         loading: false
       });
-      
+
       wx.hideLoading();
-      
+
+      await this.syncUserAvatarFromServer();
+
       if (this.data.hasAuth) {
         this.checkUserBinding(userInfo.openid);
         this.refreshBindingBanner();
@@ -62,10 +82,51 @@ Page({
   },
 
   onShow() {
+    this.syncUserAvatarFromServer();
     if (this.data.hasAuth && (this.data.openid || app.globalData.openid)) {
       const oid = this.data.openid || app.globalData.openid;
       this.checkUserBinding(oid);
       this.refreshBindingBanner();
+    }
+  },
+
+  /** 从服务端拉头像、昵称（与后台微信用户列表同源），解决仅本地缓存无完整头像 URL 时不显示 */
+  async syncUserAvatarFromServer() {
+    const cached = wx.getStorageSync('userInfo') || {};
+    const token = app.globalData.token || cached.token || '';
+    if (!token) return;
+    try {
+      const res = await new Promise((resolve, reject) => {
+        wx.request({
+          url: `${app.globalData.API_URL}/wechat/user`,
+          method: 'GET',
+          header: { Authorization: `Bearer ${token}` },
+          dataType: 'json',
+          timeout: 12000,
+          success: resolve,
+          fail: reject
+        });
+      });
+      if (res.statusCode !== 200 || !res.data || !res.data.success) return;
+      const d = res.data;
+      const displayAvatar = resolveAvatarDisplayUrl(d.avatarDisplayUrl || d.avatarUrl);
+      const merged = {
+        ...cached,
+        openid: d.openid || cached.openid,
+        nickName: d.nickName != null ? d.nickName : cached.nickName,
+        avatarUrl: d.avatarUrl != null ? d.avatarUrl : cached.avatarUrl,
+        token: cached.token || app.globalData.token
+      };
+      wx.setStorageSync('userInfo', merged);
+      if (app.globalData.userInfo) {
+        app.globalData.userInfo = { ...app.globalData.userInfo, ...merged };
+      }
+      this.setData({
+        userNickName: merged.nickName || this.data.userNickName,
+        userAvatar: displayAvatar || resolveAvatarDisplayUrl(merged.avatarUrl || '')
+      });
+    } catch (e) {
+      console.warn('【首页】同步头像失败', e);
     }
   },
 
@@ -272,7 +333,7 @@ Page({
       // 更新页面数据
       this.setData({
         hasAuth: true,
-        userAvatar: storedAvatarUrl,
+        userAvatar: resolveAvatarDisplayUrl(storedAvatarUrl),
         userNickName: tempNickName,
         userId: app.globalData.openid,
         openid: app.globalData.openid,

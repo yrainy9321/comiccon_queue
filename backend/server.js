@@ -424,8 +424,11 @@ async function getAccessToken() {
   }
 }
 
+/** 订阅消息卡片点击后打开的小程序页面（须在 app.json 注册） */
+const SUBSCRIBE_MESSAGE_LANDING_PAGE = 'pages/my-bindings/index';
+
 // 发送订阅消息
-async function sendSubscribeMessage(openid, templateId, data, page = '/pages/status/index') {
+async function sendSubscribeMessage(openid, templateId, data, page = SUBSCRIBE_MESSAGE_LANDING_PAGE) {
   const payload = {
     touser: openid,
     template_id: templateId,
@@ -518,7 +521,7 @@ async function sendCalledNotification(openid, userQueueNumber, calledAt) {
     character_string2: { value: String(userQueueNumber) }
   };
 
-  return await sendSubscribeMessage(openid, TEMPLATE_IDS.CALLED, data, '/pages/status/index');
+  return await sendSubscribeMessage(openid, TEMPLATE_IDS.CALLED, data, SUBSCRIBE_MESSAGE_LANDING_PAGE);
 }
 
 // 发送过号通知
@@ -542,7 +545,7 @@ async function sendQueueCallReminder(openid, currentCallNumber, userNumber, ahea
     thing3: { value: String(aheadCount) },
     thing4: { value: '请尽快前往活动入口等候' }
   };
-  return await sendSubscribeMessage(openid, TEMPLATE_IDS.QUEUE_REMINDER, data, '/pages/status/index');
+  return await sendSubscribeMessage(openid, TEMPLATE_IDS.QUEUE_REMINDER, data, SUBSCRIBE_MESSAGE_LANDING_PAGE);
 }
 
 /**
@@ -1629,6 +1632,24 @@ app.post('/api/wechat/user-info', (req, res) => {
   });
 });
 
+/**
+ * 按本次 HTTP 请求的 Host 拼头像完整 URL，供小程序 <image> 使用（与后台列表同源且避免前端 API_URL 写错）。
+ * 相对路径 /avatars/... 会变为 http(s)://当前请求的 host/avatars/...
+ */
+function computeAvatarDisplayUrlForRequest(req, storedPath) {
+  const av = String(storedPath == null ? '' : storedPath).trim();
+  if (!av) return '';
+  if (/^https?:\/\//i.test(av)) return av;
+  if (av.startsWith('wxfile://') || av.indexOf('http://tmp/') === 0) return av;
+  const host = typeof req.get === 'function' ? req.get('host') : req.headers.host;
+  if (!host) return '';
+  const xf = typeof req.get === 'function' ? req.get('x-forwarded-proto') : '';
+  const proto = String(xf || '').split(',')[0].trim() || req.protocol || 'http';
+  const origin = `${proto}://${host}`;
+  if (av.startsWith('/')) return origin + av;
+  return `${origin}/${av.replace(/^\//, '')}`;
+}
+
 // 获取当前用户信息（含数据库中的昵称、头像、员工标记，供个人中心展示）
 app.get('/api/wechat/user', (req, res) => {
   const token = readBearerToken(req);
@@ -1643,11 +1664,14 @@ app.get('/api/wechat/user', (req, res) => {
     return res.status(401).json({ success: false, error: '用户不存在或已过期' });
   }
 
+  const storedAvatar = user.avatarUrl || '';
+
   res.json({
     success: true,
     openid: user.openid,
     nickName: user.nickName || '',
-    avatarUrl: user.avatarUrl || '',
+    avatarUrl: storedAvatar,
+    avatarDisplayUrl: computeAvatarDisplayUrlForRequest(req, storedAvatar),
     isStaff: !!user.isStaff,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt
