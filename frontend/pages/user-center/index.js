@@ -38,14 +38,28 @@ Page({
   },
 
   loadUserInfo() {
-    const userInfo = wx.getStorageSync('userInfo');
-    if (userInfo) {
+    const userInfo = wx.getStorageSync('userInfo') || {};
+    const oid = userInfo.openid || app.globalData.openid || '';
+    if (userInfo && Object.keys(userInfo).length) {
       this.setData({
         userName: userInfo.nickName || '',
-        userId: userInfo.openid || '',
+        userId: oid,
         avatarUrl: resolveAvatarDisplayUrl(userInfo.avatarUrl) || ''
       });
+    } else if (oid) {
+      this.setData({ userId: oid });
     }
+  },
+
+  /** 接口失败或新后端不认旧 token 时，仍尽量展示内存/缓存里的 openid，避免误显示「未绑定」 */
+  applyOpenidFallback() {
+    const cached = wx.getStorageSync('userInfo') || {};
+    const oid = String(cached.openid || app.globalData.openid || '').trim();
+    if (!oid || oid.startsWith('temp_') || oid.startsWith('mock_')) return;
+    this.setData({
+      userId: oid,
+      userName: this.data.userName || cached.nickName || ''
+    });
   },
 
   /** 拉取数据库中的用户资料并更新展示与本地缓存 */
@@ -57,7 +71,10 @@ Page({
     }
     const cached = wx.getStorageSync('userInfo') || {};
     const token = app.globalData.token || cached.token || '';
-    if (!token) return;
+    if (!token) {
+      this.applyOpenidFallback();
+      return;
+    }
 
     try {
       const res = await new Promise((resolve, reject) => {
@@ -73,6 +90,8 @@ Page({
       });
 
       if (res.statusCode !== 200 || !res.data || !res.data.success) {
+        console.warn('[个人中心] /wechat/user', res.statusCode, res.data);
+        this.applyOpenidFallback();
         return;
       }
 
@@ -97,11 +116,8 @@ Page({
       });
     } catch (err) {
       const em = (err && err.errMsg) || '';
-      console.error(
-        '同步用户资料失败',
-        em,
-        '→ 真机请改 frontend/config.js 中 API_URL 为电脑局域网 IP，并与手机同一 Wi‑Fi'
-      );
+      console.error('同步用户资料失败', em);
+      this.applyOpenidFallback();
     }
   },
 

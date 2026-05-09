@@ -1,0 +1,10 @@
+{
+  "watch": ["backend", ".env"],
+  "ext": "js,cjs,env",
+  "ignore": ["backend/data/**", "backend/uploads/**", "**/*.jsonl", "**/*.jsonl.bak"],
+  "exec": "node backend/server.js",
+  "delay": 600,
+  "env": {
+    "NODE_ENV": "development"
+  }
+}

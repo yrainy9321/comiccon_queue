@@ -12,9 +12,18 @@ const {
   validateBraceletIdStrictMg27,
   validateBraceletIdCharsOnly
 } = require('./lib/braceletId.cjs');
+const systemLogger = require('./lib/systemLogger.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+/** 用于启动日志中的「局域网访问」提示；与 frontend/config.js 的 LAN_IPV4 保持一致即可 */
+const LAN_IPV4 =
+  (process.env.LAN_IPV4 && String(process.env.LAN_IPV4).trim()) || '172.16.102.3';
+/** 绑定到所有网卡，便于同局域网其它设备访问（本机仍可用 localhost） */
+const LISTEN_HOST =
+  process.env.LISTEN_HOST != null && String(process.env.LISTEN_HOST).trim() !== ''
+    ? String(process.env.LISTEN_HOST).trim()
+    : '0.0.0.0';
 const DATA_DIR = path.join(__dirname, 'data');
 const AVATAR_DIR = path.join(__dirname, 'uploads/avatars');
 
@@ -34,9 +43,52 @@ const upload = multer({ storage: storage });
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+/** 仅记录 /api 请求，便于排查真机/微信/鉴权（不写前端页面，见 data/system_logs.jsonl） */
+app.use((req, res, next) => {
+  const url = req.originalUrl || req.url || '';
+  if (!url.startsWith('/api')) return next();
+  const start = Date.now();
+  const rid = crypto.randomBytes(4).toString('hex');
+  req._requestLogId = rid;
+  res.on('finish', () => {
+    try {
+      systemLogger.info('http', `${req.method} ${url}`, {
+        rid,
+        status: res.statusCode,
+        ms: Date.now() - start,
+        ip:
+          (req.headers['x-forwarded-for'] && String(req.headers['x-forwarded-for']).split(',')[0].trim()) ||
+          req.socket?.remoteAddress ||
+          '',
+        ua: String(req.headers['user-agent'] || '').slice(0, 200)
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  });
+  next();
+});
+
 app.use('/admin', express.static(path.join(__dirname, '../admin')));
 app.use(express.static(path.join(__dirname, '..')));
 app.use('/avatars', express.static(AVATAR_DIR));
+
+/** 真机/浏览器连通性自检（无鉴权）：应返回 ok:true；wechatConfigured 表示 .env 是否已配微信 */
+app.get('/api/ping', (req, res) => {
+  const aid =
+    (process.env.WECHAT_APPID && String(process.env.WECHAT_APPID).trim()) || 'your_appid';
+  const sec =
+    (process.env.WECHAT_SECRET && String(process.env.WECHAT_SECRET).trim()) || 'your_secret';
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    wechatConfigured: aid !== 'your_appid' && sec !== 'your_secret',
+    wechatAppId: aid !== 'your_appid' ? aid : null,
+    hint:
+      '小程序 frontend/project.config.json 的 appid 须与本字段 wechatAppId 完全一致，否则静默登录永远失败'
+  });
+});
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -366,7 +418,7 @@ function maskOpenid(oid) {
 }
 
 function logSubscribeConfigOnBoot() {
-  const appid = String(WECHAT_APPID || '');
+  const appid = String(WECHAT_APPID || '').trim();
   const appidOk = appid && appid !== 'your_appid';
   console.log('[订阅消息] 启动配置 — miniprogram_state=%s（体验版/预览请用 trial；正式上架用 formal）', WECHAT_SUBSCRIBE_MINIPROGRAM_STATE);
   console.log(
@@ -376,6 +428,26 @@ function logSubscribeConfigOnBoot() {
   );
   console.log('[订阅消息] 模板 CALLED=%s…', String(TEMPLATE_IDS.CALLED || '').slice(0, 12));
   console.log('[订阅消息] 模板 QUEUE_REMINDER=%s…', String(TEMPLATE_IDS.QUEUE_REMINDER || '').slice(0, 12));
+
+  try {
+    const pj = path.join(__dirname, '../frontend/project.config.json');
+    if (fs.existsSync(pj)) {
+      const pm = JSON.parse(fs.readFileSync(pj, 'utf8'));
+      const mini = String(pm.appid || '').trim();
+      if (mini && appidOk && mini !== appid) {
+        console.error(
+          '[微信] 致命配置：小程序 project.config.json 的 appid（%s）与 .env WECHAT_APPID（%s）不一致 → jscode2session 必失败，后台不会出现微信用户。',
+          mini,
+          appid
+        );
+        systemLogger.warn('boot', 'wechat_appid_mismatch', { miniAppId: mini, envAppId: appid });
+      } else if (mini && appidOk) {
+        console.log('[微信] 小程序工程 appid 与后端 WECHAT_APPID 一致（%s）', mini);
+      }
+    }
+  } catch (e) {
+    console.warn('[微信] 读取 frontend/project.config.json 失败:', e.message);
+  }
 }
 
 logSubscribeConfigOnBoot();
@@ -648,12 +720,18 @@ app.post('/api/auth/login', (req, res) => {
   const user = users.find(u => u.username === username && u.password === hashPassword(password));
 
   if (!user) {
+    systemLogger.warn('auth/login', 'failed', {
+      username: username != null ? String(username).slice(0, 64) : '',
+      ip: req.socket?.remoteAddress || ''
+    });
     return res.status(401).json({ error: '用户名或密码错误' });
   }
 
   const token = crypto.randomBytes(32).toString('hex');
   user.token = token;
   currentUser = user;
+
+  systemLogger.info('auth/login', 'ok', { username: user.username, role: user.role });
 
   res.json({
     token,
@@ -664,6 +742,28 @@ app.post('/api/auth/login', (req, res) => {
 function validateToken(token) {
   return users.find(user => user.token === token);
 }
+
+/** 管理员拉取系统日志（仅 JSON，不在管理后台做页面；可用浏览器控制台或 curl） */
+app.get('/api/admin/system-logs', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) {
+    return res.status(401).json({ error: '未授权' });
+  }
+  if (user.role !== 'admin') {
+    return res.status(403).json({ error: '仅管理员可查看系统日志' });
+  }
+  const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || '200'), 10) || 200));
+  const items = systemLogger.readRecent(limit);
+  res.json({
+    success: true,
+    limit,
+    count: items.length,
+    file: 'backend/data/system_logs.jsonl',
+    items
+  });
+});
 
 app.get('/api/auth/current', (req, res) => {
   const token = req.headers.authorization;
@@ -1403,10 +1503,25 @@ app.get('/api/queue/user/:activityId/:braceletId', (req, res) => {
 
 // 微信小程序登录 - 通过code获取openid
 app.post('/api/wechat/login', async (req, res) => {
-  const { code } = req.body;
-  
+  const { code } = req.body || {};
+
   if (!code) {
-    return res.status(400).json({ error: '缺少code参数' });
+    console.warn(
+      '[wechat/login] 缺少 code；Content-Type=%s bodyKeys=%s',
+      req.headers['content-type'],
+      Object.keys(req.body || {}).join(',')
+    );
+    systemLogger.warn('wechat/login', 'missing_code', {
+      rid: req._requestLogId,
+      contentType: req.headers['content-type'],
+      bodyKeys: Object.keys(req.body || {})
+    });
+    return res.status(400).json({
+      success: false,
+      error: 'missing_code',
+      message:
+        '缺少 code：请确认小程序请求带 Content-Type: application/json，且 body 为 {"code":"..."}'
+    });
   }
 
   /** 空字符串视为未设置，回退占位，避免 .env 里写 WECHAT_APPID= 导致永远不请求微信 */
@@ -1414,6 +1529,17 @@ app.post('/api/wechat/login', async (req, res) => {
     (process.env.WECHAT_APPID && String(process.env.WECHAT_APPID).trim()) || 'your_appid';
   const SECRET =
     (process.env.WECHAT_SECRET && String(process.env.WECHAT_SECRET).trim()) || 'your_secret';
+
+  if (APPID === 'your_appid' || SECRET === 'your_secret') {
+    console.error('[wechat/login] 未配置有效 WECHAT_APPID / WECHAT_SECRET（仍为占位符）');
+    systemLogger.warn('wechat/login', 'wechat_not_configured', { rid: req._requestLogId });
+    return res.status(503).json({
+      success: false,
+      error: 'wechat_not_configured',
+      message:
+        '服务器未配置微信 AppId/Secret：请在项目根目录或 backend 目录的 .env 中设置 WECHAT_APPID、WECHAT_SECRET 后重启 Node'
+    });
+  }
 
   try {
     // 调用微信接口获取openid和session_key
@@ -1426,10 +1552,38 @@ app.post('/api/wechat/login', async (req, res) => {
       }
     });
 
-    const { openid, session_key, unionid, errcode, errmsg } = response.data;
+    let jw = response.data;
+    if (typeof jw === 'string') {
+      try {
+        jw = JSON.parse(jw);
+      } catch (pe) {
+        console.error('[wechat/login] jscode2session 返回非 JSON:', String(jw).slice(0, 500));
+        systemLogger.warn('wechat/login', 'upstream_not_json', { rid: req._requestLogId });
+        return res.status(502).json({
+          success: false,
+          error: 'bad_upstream',
+          message: '微信接口返回非 JSON（可能被公司代理/防火墙替换页面）'
+        });
+      }
+    }
+    if (!jw || typeof jw !== 'object') {
+      return res.status(502).json({
+        success: false,
+        error: 'bad_upstream',
+        message: '微信接口响应异常'
+      });
+    }
+
+    const { openid, session_key, unionid, errcode, errmsg } = jw;
 
     if (errcode) {
       console.error('[wechat/login] 微信接口错误:', errcode, errmsg);
+      systemLogger.warn('wechat/login', 'wechat_api_error', {
+        rid: req._requestLogId,
+        errcode,
+        errmsg,
+        appidTail: APPID.length > 8 ? APPID.slice(-6) : APPID
+      });
       return res.status(400).json({
         success: false,
         error: 'wechat_api_error',
@@ -1439,7 +1593,11 @@ app.post('/api/wechat/login', async (req, res) => {
     }
 
     if (!openid) {
-      console.error('[wechat/login] 响应无 openid:', JSON.stringify(response.data));
+      console.error('[wechat/login] 响应无 openid:', JSON.stringify(jw));
+      systemLogger.warn('wechat/login', 'no_openid_in_response', {
+        rid: req._requestLogId,
+        keys: jw && typeof jw === 'object' ? Object.keys(jw) : []
+      });
       return res.status(502).json({
         success: false,
         error: 'no_openid',
@@ -1470,6 +1628,15 @@ app.post('/api/wechat/login', async (req, res) => {
     wechatUsers[openid].token = token;
     saveData('wechat_users.json', wechatUsers);
 
+    systemLogger.info('wechat/login', 'success', {
+      rid: req._requestLogId,
+      openidPrefix: String(openid).slice(0, 10) + '…',
+      isNewUser:
+        !Object.keys(wechatUsers[openid]).includes('createdAt') ||
+        new Date(wechatUsers[openid].createdAt).getTime() ===
+          new Date(wechatUsers[openid].lastLoginAt).getTime()
+    });
+
     res.json({
       success: true,
       openid,
@@ -1481,9 +1648,16 @@ app.post('/api/wechat/login', async (req, res) => {
 
   } catch (error) {
     console.error('微信登录异常:', error.message);
-    res.status(500).json({ 
-      error: '服务器错误', 
-      message: '微信登录服务暂时不可用' 
+    systemLogger.error('wechat/login', 'exception', {
+      rid: req._requestLogId,
+      message: error.message,
+      stack: error.stack && String(error.stack).slice(0, 2500)
+    });
+    res.status(500).json({
+      success: false,
+      error: 'server_error',
+      message: '微信登录服务暂时不可用',
+      detail: error.message
     });
   }
 });
@@ -2604,9 +2778,36 @@ app.get('/api/queue/bindings/:openid', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+process.on('uncaughtException', (err) => {
+  try {
+    systemLogger.error('process', 'uncaughtException', {
+      message: err && err.message,
+      stack: err && err.stack && String(err.stack).slice(0, 3000)
+    });
+  } catch (_) {
+    /* ignore */
+  }
+  console.error('uncaughtException', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  try {
+    const msg =
+      reason instanceof Error
+        ? `${reason.message}\n${reason.stack || ''}`.slice(0, 3000)
+        : String(reason).slice(0, 2000);
+    systemLogger.error('process', 'unhandledRejection', { message: msg });
+  } catch (_) {
+    /* ignore */
+  }
+  console.error('unhandledRejection', reason);
+});
+
+app.listen(PORT, LISTEN_HOST, () => {
   ensureActivitiesReferencedByQueues();
-  console.log('服务器运行在 http://localhost:' + PORT);
+  console.log(`[本机]   http://localhost:${PORT}/admin/`);
+  console.log(`[局域网] http://${LAN_IPV4}:${PORT}/admin/`);
+  console.log(`[API]    http://localhost:${PORT}/api  |  http://${LAN_IPV4}:${PORT}/api`);
   console.log('默认管理员: admin / admin123');
   console.log('数据存储目录:', DATA_DIR);
 });

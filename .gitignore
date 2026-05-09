@@ -8,6 +8,9 @@ node_modules/
 
 # Data files (production data)
 backend/data/*.json
+# 本地系统运行日志（JSONL，可含请求轨迹）
+backend/data/system_logs.jsonl
+backend/data/system_logs_*.jsonl.bak
 
 # 用户上传（头像等），勿入库
 backend/uploads/

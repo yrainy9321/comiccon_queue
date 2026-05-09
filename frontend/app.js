@@ -1,15 +1,38 @@
 // app.js
 const appConfig = require('./config.js');
 
+/** 兼容部分环境下 data 为字符串或非 JSON 的情况 */
+function parseWxResponseData(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  const s = String(raw);
+  try {
+    return JSON.parse(s);
+  } catch (e) {
+    return { success: false, message: 'invalid_json_response', _rawSnippet: s.slice(0, 160) };
+  }
+}
+
 App({
   onLaunch() {
-    console.log('App launched');
-    console.log('API_URL:', appConfig.API_URL);
+    this.globalData.API_URL = appConfig.resolveRuntimeApiUrl();
+    try {
+      const p = appConfig.getMiniProgramHostPlatform && appConfig.getMiniProgramHostPlatform();
+      const ev = appConfig.getMiniProgramEnvVersion && appConfig.getMiniProgramEnvVersion();
+      console.log('[启动] env=%s platform=%s API_URL=%s', ev, p || '(empty)', this.globalData.API_URL);
+      if ((ev === 'trial' || ev === 'release') && !String(appConfig.PRODUCTION_API_URL || '').trim()) {
+        console.warn(
+          '[启动] 当前为体验版/正式版但未配置 config.js 的 PRODUCTION_API_URL（https 合法域名），真机非「真机调试」时请求会被微信拦截。'
+        );
+      }
+    } catch (_) {
+      console.log('[启动] API_URL=', this.globalData.API_URL);
+    }
     this.getWechatUserInfo().catch((e) => console.warn('[微信登录] onLaunch 预登录未完成', e && e.message));
   },
 
   globalData: {
-    API_URL: appConfig.API_URL,
+    API_URL: appConfig.resolveRuntimeApiUrl(),
     userInfo: null,
     openid: null,
     unionid: null,
@@ -29,6 +52,7 @@ App({
     }
 
     const that = this;
+    that.globalData.API_URL = appConfig.resolveRuntimeApiUrl();
 
     const p = new Promise((resolve, reject) => {
       let cachedUserInfo = wx.getStorageSync('userInfo') || {};
@@ -61,60 +85,113 @@ App({
 
       console.log('[微信登录] 开始 wx.login → /wechat/login');
 
-      wx.login({
-        success(res) {
-          if (!res.code) {
-            reject(new Error('wx.login 未返回 code'));
-            return;
-          }
+      const postWechatLogin = (apiBase, loginCode) =>
+        new Promise((resv, rej) => {
+          const base = String(apiBase || '').replace(/\/+$/, '');
           wx.request({
-            url: that.globalData.API_URL + '/wechat/login',
+            url: `${base}/wechat/login`,
             method: 'POST',
-            data: { code: res.code },
-            timeout: 12000,
+            data: { code: loginCode },
+            header: {
+              'Content-Type': 'application/json; charset=utf-8'
+            },
+            dataType: 'json',
+            timeout: 15000,
             success(loginRes) {
-              const d = loginRes.data || {};
+              const d = parseWxResponseData(loginRes.data);
               console.log('[微信登录] 后端响应 status=', loginRes.statusCode, d);
               if (loginRes.statusCode === 200 && d.success) {
-                const { openid, unionid, token, isNewUser } = d;
-                that.globalData.openid = openid;
-                that.globalData.unionid = unionid || null;
-                that.globalData.token = token;
-                that.globalData.userInfo = {
-                  openid,
-                  unionid: unionid || null,
-                  token,
-                  isNewUser,
-                  hasAuth: false
-                };
-                that.globalData.hasAuth = false;
-                wx.setStorageSync('userInfo', {
-                  openid,
-                  unionid: unionid || null,
-                  token,
-                  isNewUser,
-                  hasAuth: false,
-                  loginTime: Date.now()
-                });
-                resolve({ openid, token });
+                resv(d);
                 return;
               }
               const msg =
                 d.message ||
                 d.error ||
-                (d.code != null ? `微信错误码 ${d.code}` : '') ||
-                `HTTP ${loginRes.statusCode}`;
-              reject(new Error(String(msg || '微信登录失败')));
+                (d.code != null ? `wechat_${d.code}` : '') ||
+                `HTTP_${loginRes.statusCode}`;
+              const er = new Error(String(msg || 'wechat_login_fail'));
+              er._kind = 'http';
+              rej(er);
             },
             fail(err) {
-              reject(new Error((err && err.errMsg) || '请求 /wechat/login 失败'));
+              const m = (err && err.errMsg) || 'request_fail';
+              const er = new Error(m);
+              er._kind = 'net';
+              rej(er);
             }
           });
-        },
-        fail(err) {
-          reject(new Error((err && err.errMsg) || 'wx.login 失败'));
-        }
-      });
+        });
+
+      const wxLoginThenPost = (apiBase) =>
+        new Promise((resv, rej) => {
+          wx.login({
+            success(res) {
+              if (!res.code) {
+                rej(new Error('wx.login 未返回 code'));
+                return;
+              }
+              postWechatLogin(apiBase, res.code).then(resv).catch(rej);
+            },
+            fail(err) {
+              rej(new Error((err && err.errMsg) || 'wx.login 失败'));
+            }
+          });
+        });
+
+      const applyLoginData = (d) => {
+        const { openid, unionid, token, isNewUser } = d;
+        that.globalData.openid = openid;
+        that.globalData.unionid = unionid || null;
+        that.globalData.token = token;
+        that.globalData.userInfo = {
+          openid,
+          unionid: unionid || null,
+          token,
+          isNewUser,
+          hasAuth: false
+        };
+        that.globalData.hasAuth = false;
+        wx.setStorageSync('userInfo', {
+          openid,
+          unionid: unionid || null,
+          token,
+          isNewUser,
+          hasAuth: false,
+          loginTime: Date.now()
+        });
+      };
+
+      const firstBase = that.globalData.API_URL;
+      wxLoginThenPost(firstBase)
+        .catch((e) => {
+          const msg = String((e && e.message) || '');
+          const domainHit =
+            e &&
+            e._kind === 'net' &&
+            /domain|合法域名|url not in\s+domain|not\s+in\s+domain/i.test(msg);
+          const connHit =
+            e &&
+            e._kind === 'net' &&
+            /(fail\s+connect|connection\s+refused|timeout|ERR_CONNECTION)/i.test(msg);
+          const notLocal =
+            firstBase &&
+            !/127\.0\.0\.1|localhost/i.test(String(firstBase));
+          if (
+            (domainHit || connHit) &&
+            notLocal &&
+            appConfig.shouldAttemptLocalhostAfterDomainError()
+          ) {
+            that.globalData.API_URL = appConfig.DEVTOOLS_API_URL;
+            console.warn('[微信登录] 域名失败，改本机回环并重新 wx.login');
+            return wxLoginThenPost(that.globalData.API_URL);
+          }
+          throw e;
+        })
+        .then((d) => {
+          applyLoginData(d);
+          resolve({ openid: d.openid, token: d.token });
+        })
+        .catch(reject);
     });
 
     this.globalData._wechatLoginPromise = p.finally(() => {
@@ -250,10 +327,7 @@ App({
       )
     ]).then((out) => {
       if (out && out.loginTimedOut) {
-        console.error(
-          '[微信登录] 超时（%sms）；请检查网络、config.js 中 API_URL、后端是否运行',
-          loginMs
-        );
+        console.error('[微信登录] 超时 %sms API_URL=%s', loginMs, this.globalData.API_URL);
         return {
           openid: '',
           token: '',
@@ -264,10 +338,7 @@ App({
       }
       if (out && out._loginFail) {
         const text = String(out._msg || '登录失败').slice(0, 200);
-        console.error(
-          '[微信登录] 未获取到 openid（首页仍可使用）。请配置项目根 .env 的 WECHAT_APPID/WECHAT_SECRET 并重启后端；开发者工具 AppId 须与之一致；config.js 的 API_URL 须可访问。原因:',
-          text
-        );
+        console.error('[微信登录] 失败 API_URL=%s %s', this.globalData.API_URL, text);
         return {
           openid: '',
           token: '',

@@ -39,7 +39,7 @@ Page({
     userNumber: 0,
     queueCount: 0,
     loading: true,
-    
+
     // 授权弹窗状态
     showAuthModal1: false,  // 授权提示弹窗
     showAuthModal2: false,  // 昵称头像填写表单弹窗
@@ -512,8 +512,7 @@ Page({
     if (!oid || oid.startsWith('temp_') || oid.startsWith('mock_') || cached.isTemp) {
       wx.showModal({
         title: '无法绑定',
-        content:
-          '未拿到微信用户身份（请先等首页「初始化」完成，或检查网络与后端 /wechat/login）。完全关闭小程序再打开，确认 .env 已配置 WECHAT_APPID/SECRET 后重试。',
+        content: '当前没有有效的微信登录态，请稍后重试。',
         showCancel: false,
         confirmText: '知道了'
       });

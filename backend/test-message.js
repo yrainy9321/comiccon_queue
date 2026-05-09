@@ -5,10 +5,15 @@
  * 用于快速测试微信消息模板配置是否正确
  */
 
+const path = require('path');
 const axios = require('axios');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-const BASE_URL = 'http://localhost:3000/api';
+/** 默认本机；测局域网手机访问时可设 API_BASE_URL=http://172.16.102.3:3000/api */
+const BASE_URL =
+  (process.env.API_BASE_URL && String(process.env.API_BASE_URL).trim()) ||
+  'http://localhost:3000/api';
 
 // 从环境变量读取配置
 const CONFIG = {

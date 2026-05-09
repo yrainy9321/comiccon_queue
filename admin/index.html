@@ -109,10 +109,43 @@
     /* Textarea */
     textarea.form-control { resize: vertical; min-height: 80px; }
     
-    /* Responsive */
+    /* Responsive：手机端保留菜单 — 顶部横向滚动，避免原先 display:none 导致无入口 */
     @media (max-width: 768px) {
-      .layout-sider { display: none; }
-      .layout-content { padding: 12px; }
+      .layout-header { padding: 0 12px; height: 56px; }
+      .layout-header-title { font-size: 15px; }
+      .layout-header-right { gap: 8px; font-size: 12px; flex-wrap: wrap; justify-content: flex-end; }
+      .layout-header-right .btn { padding: 8px 12px; font-size: 12px; }
+      .layout-body {
+        flex-direction: column;
+        overflow: visible;
+      }
+      .layout-sider {
+        display: block;
+        width: 100%;
+        flex-shrink: 0;
+      }
+      .layout-sider .menu {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 8px 6px;
+        gap: 4px;
+        scrollbar-width: thin;
+      }
+      .layout-sider .menu-item {
+        flex: 0 0 auto;
+        padding: 10px 14px;
+        white-space: nowrap;
+        border-radius: 6px;
+      }
+      .layout-content {
+        flex: 1;
+        min-height: 0;
+        padding: 12px;
+        overflow-y: auto;
+      }
       .form-inline { flex-direction: column; align-items: stretch; }
       .form-inline .btn { margin-top: 8px; }
       .modal { width: 95%; }
@@ -125,7 +158,9 @@
   <div id="app"></div>
 
   <script>
-    const API_URL = 'http://localhost:3000/api';
+    // 动态取当前页面所在的主机，避免手机访问时 localhost 失效
+    const API_URL = window.location.origin + '/api';
+    const BASE_URL = window.location.origin;
     
     // Message Toast
     function showMessage(type, content) {

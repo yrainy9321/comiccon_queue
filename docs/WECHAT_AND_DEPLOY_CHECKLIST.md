@@ -8,12 +8,12 @@
 
 | 用途 | 写法说明 |
 |------|----------|
-| 小程序调后端 API | 在 **`frontend/config.js`** 中配置 **`API_URL`**，**必须以 `/api` 结尾**。示例：`http://<你的电脑局域网IP>:3000/api` |
+| 小程序调后端 API | 开发：`LAN_IPV4` + 工具内 `127.0.0.1` 逻辑；**体验版/正式版真机**须配 **`frontend/config.js` → `PRODUCTION_API_URL`**（`https` 且已在公众平台 **request 合法域名** 配置），否则只能依赖「真机调试」才能访问局域网 IP。可选 **`FORCE_API_URL`** 强制固定地址。 |
 | 头像等静态资源 | 与 API 同源：去掉 `API_URL` 末尾的 `/api` 即为站点根，例如 `http://<IP>:3000`，头像路径为 `/avatars/...` |
 
 **仓库内当前示例**（以你本机为准时请自行修改 `frontend/config.js`）：
 
-- `API_URL` 示例：`http://172.16.100.78:3000/api`（以 `frontend/config.js` 实际内容为准）
+- `API_URL` 示例：`http://172.16.102.3:3000/api`（以 `frontend/config.js` 里 `LAN_IPV4` + `HTTP_PORT` 为准）
 
 真机预览：手机与运行 Node 的电脑需 **同一 Wi‑Fi**；防火墙放行 **3000**（或你在 `.env` 里设的 `PORT`）。
 

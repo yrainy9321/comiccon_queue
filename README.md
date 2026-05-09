@@ -46,15 +46,24 @@ PORT=3000
 ### 3. 启动服务
 
 ```bash
-npm start
-# 或开发模式（自动重启）
+# 本地开发推荐：改 backend 代码保存后会自动重启（nodemon）
 npm run dev
 ```
 
+Windows 也可双击项目根目录的 **`dev-server.bat`**（等价于上面命令）。正式环境无热重载时用：`npm start`。
+
+当前若已在跑 `npm run dev`，无需再手动重启 Node。
+
 ## 📱 访问地址
 
-- **管理后台**：http://localhost:3000/admin/index.html
-- **后端API**：http://localhost:3000/api
+- **管理后台（本机）**：http://localhost:3000/admin/
+- **管理后台（局域网）**：http://172.16.102.3:3000/admin/
+- **后端 API（本机）**：http://localhost:3000/api
+- **后端 API（局域网）**：http://172.16.102.3:3000/api
+
+小程序 `frontend/config.js`：在**微信开发者工具 / 内置模拟器**（`platform === devtools`）下会自动请求 **`http://127.0.0.1:端口/api`**，与在本机跑的 Node 通信，避免局域网 IP 触发域名校验。真机预览仍使用其中的 **`LAN_IPV4`**，请与 `.env` 的 `LAN_IPV4` 及实际网段一致。
+
+**系统运行日志**（不入库业务 JSON，单独 JSONL 文件）：`backend/data/system_logs.jsonl`，记录 `/api` 请求与微信登录等事件；管理后台登录后可用 `GET /api/admin/system-logs?limit=200`（Header 带后台 `Authorization` token）拉取最近条目排查问题，默认不在任何页面展示。
 
 ## 👤 默认账号
 
