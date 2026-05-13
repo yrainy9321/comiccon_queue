@@ -2,7 +2,8 @@
   "navigationBarTitleText": "我的绑定",
   "navigationBarBackgroundColor": "#e8edf5",
   "navigationBarTextStyle": "black",
-  "enablePullDownRefresh": true,
   "backgroundColor": "#e8edf5",
+  "backgroundTextStyle": "dark",
+  "enablePullDownRefresh": true,
   "usingComponents": {}
 }

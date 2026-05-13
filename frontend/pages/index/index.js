@@ -5,6 +5,11 @@ const {
   SUBSCRIBE_TMPL_QUEUE_CALLED,
   SUBSCRIBE_TMPL_QUEUE_REMINDER
 } = require('../../config.js');
+const {
+  shouldSkipSubscribeUiForAlwaysAccept,
+  mergeLocalSubscribeStats,
+  reportSubscribeToServer
+} = require('../../utils/subscribeHelper.js');
 
 /**
  * 头像展示 URL：完整 http(s) 原样；wxfile/http://tmp 本地临时图原样（勿清空）；
@@ -444,6 +449,37 @@ Page({
     });
   },
 
+  /**
+   * 扫码绑定：未「总是允许」时弹出说明；「去开启」内调 requestSubscribeMessage（仍在点击链路内）。
+   */
+  showBraceletSubscribeModalIfNeeded(braceletId, tmplIds) {
+    wx.showModal({
+      title: '绑定手环',
+      content:
+        '开启订阅消息，排队到号与前方提醒将第一时间通知您。\n\n您也可选择「暂不开启」，仍可完成绑定，但不会收到上述通知。',
+      showCancel: true,
+      cancelText: '暂不开启',
+      confirmText: '去开启',
+      success: (m) => {
+        if (!m.confirm) {
+          this.runBindBraceletApi(braceletId);
+          return;
+        }
+        wx.requestSubscribeMessage({
+          tmplIds,
+          success: (subRes) => {
+            mergeLocalSubscribeStats(tmplIds, subRes || {});
+            reportSubscribeToServer(tmplIds, subRes || {});
+          },
+          fail: () => {},
+          complete: () => {
+            this.runBindBraceletApi(braceletId);
+          }
+        });
+      }
+    });
+  },
+
   scanCode() {
     wx.scanCode({
       success: (res) => {
@@ -456,26 +492,24 @@ Page({
         const tmplIds = [SUBSCRIBE_TMPL_QUEUE_CALLED, SUBSCRIBE_TMPL_QUEUE_REMINDER].filter(
           (id) => typeof id === 'string' && id.length > 0
         );
-        /**
-         * wx.requestSubscribeMessage 必须在用户点击触发的同步链路里调用；
-         * 放在 wx.request 的 success 里会被微信拦截，弹不出授权面板。
-         */
-        wx.showModal({
-          title: '绑定手环',
-          content: '开启订阅消息，排队进度更新后将第一时间通知您。',
-          showCancel: false,
-          confirmText: '继续',
-          success: () => {
-            if (tmplIds.length === 0) {
-              this.runBindBraceletApi(braceletId);
+
+        const bindNow = () => this.runBindBraceletApi(braceletId);
+        if (!tmplIds.length) {
+          bindNow();
+          return;
+        }
+
+        wx.getSetting({
+          withSubscriptions: true,
+          success: (gst) => {
+            if (shouldSkipSubscribeUiForAlwaysAccept(gst, tmplIds)) {
+              bindNow();
               return;
             }
-            wx.requestSubscribeMessage({
-              tmplIds,
-              complete: () => {
-                this.runBindBraceletApi(braceletId);
-              }
-            });
+            this.showBraceletSubscribeModalIfNeeded(braceletId, tmplIds);
+          },
+          fail: () => {
+            this.showBraceletSubscribeModalIfNeeded(braceletId, tmplIds);
           }
         });
       },
@@ -505,7 +539,7 @@ Page({
     this.scanQRCode();
   },
 
-  /** 仅请求绑定接口（订阅已在扫码后的「继续」手势里完成） */
+  /** 仅请求绑定接口；订阅在「去开启」点击链路内完成，或已「总是允许」时跳过 */
   runBindBraceletApi(braceletId) {
     const oid = String(this.data.openid || app.globalData.openid || '');
     const cached = wx.getStorageSync('userInfo') || {};
@@ -521,12 +555,6 @@ Page({
 
     wx.showLoading({ title: '绑定中...' });
 
-    const afterBindSuccess = () => {
-      wx.showToast({ title: '绑定成功', icon: 'success', duration: 2000 });
-      this.checkUserBinding(this.data.openid);
-      this.refreshBindingBanner();
-    };
-
     wx.request({
       url: `${app.globalData.API_URL}/wechat/bind`,
       method: 'POST',
@@ -534,9 +562,12 @@ Page({
       data: { openid: this.data.openid, braceletId: braceletId },
       success: (res) => {
         wx.hideLoading();
-
         if (res.data.success) {
-          afterBindSuccess();
+          setTimeout(() => {
+            wx.showToast({ title: '绑定成功', icon: 'success', duration: 2200 });
+            this.checkUserBinding(this.data.openid);
+            this.refreshBindingBanner();
+          }, 120);
         } else {
           wx.showToast({ title: res.data.message || '绑定失败', icon: 'none' });
         }

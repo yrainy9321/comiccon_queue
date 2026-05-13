@@ -1,8 +1,8 @@
-// pages/my-bindings/index.js — GET /wechat/user 取 openid → GET /wechat/my-scanned-bindings；
-// 每 2 秒静默刷新：绑定列表 + /queue/status/:activityId + /wechat/my-queue-ahead；已叫号入场不展示。
+// pages/my-bindings/index.js — GET /wechat/user → my-scanned-bindings + my-customer-called-today；
+// 每 2 秒静默刷新；前方人数与预计等候区间均由 GET /wechat/my-queue-ahead 返回（与后台 pace 同源）。
 const app = getApp();
 
-/** 我的绑定：已叫号入场不展示、不计入条数 */
+/** 进行中列表不展示已叫号；已叫号仅「今日已叫号」区块展示 */
 function isBindingVisible(row) {
   return row && row.status !== 'called';
 }
@@ -22,85 +22,7 @@ function formatScanTime(iso) {
   }
 }
 
-/**
- * 排队状态来自 GET /api/queue/status/:activityId（queuePaused、isSlow、avgIntervalSeconds）。
- * 前方人数来自 /wechat/my-queue-ahead 的 aheadCount。
- * 仅当平均叫号间隔小于 10 分钟（avgIntervalSeconds < 600）且能拿到前方人数时，
- * 用「前方还有 X 人 × 平均间隔秒」估算总等待时长并换算为分钟展示。
- */
-function computeQueueFields(statusJson, aheadCountForEta) {
-  const unknown = {
-    queueStateKind: 'unknown',
-    queueStateTitle: '排队状态获取失败',
-    etaText: '请下拉刷新或稍后再试',
-    etaMinutes: null
-  };
-
-  if (!statusJson || typeof statusJson !== 'object') {
-    return unknown;
-  }
-
-  const paused = Boolean(statusJson.queuePaused);
-  const slow = Boolean(statusJson.isSlow);
-  const avgSec = Number(statusJson.avgIntervalSeconds) || 0;
-  /** 与后台「排队缓慢」阈值对齐：间隔在 10 分钟内才给出数值化总等待时长 */
-  const intervalUnder10Min = avgSec > 0 && avgSec < 600;
-
-  function buildWaitDisplay() {
-    let etaText = '—';
-    let etaMinutes = null;
-
-    if (aheadCountForEta == null) {
-      etaText = '暂无前方人数数据';
-      return { etaText, etaMinutes };
-    }
-    if (aheadCountForEta <= 0) {
-      etaText = '即将轮到您';
-      return { etaText, etaMinutes };
-    }
-    if (avgSec <= 0) {
-      etaText = '预估时间计算中（叫号样本不足）';
-      return { etaText, etaMinutes };
-    }
-    if (!intervalUnder10Min) {
-      etaText = '叫号间隔较长（≥10 分钟），预计等候较久';
-      return { etaText, etaMinutes };
-    }
-
-    const totalSec = aheadCountForEta * avgSec;
-    etaMinutes = Math.max(1, Math.round(totalSec / 60));
-    etaText = `约 ${etaMinutes} 分钟`;
-    return { etaText, etaMinutes };
-  }
-
-  if (paused) {
-    return {
-      queueStateKind: 'paused',
-      queueStateTitle: '暂停排队',
-      etaText: '',
-      etaMinutes: null
-    };
-  }
-
-  if (slow) {
-    const { etaText, etaMinutes } = buildWaitDisplay();
-    return {
-      queueStateKind: 'slow',
-      queueStateTitle: '排队缓慢',
-      etaText,
-      etaMinutes
-    };
-  }
-
-  /** 后台：未暂停且非 isSlow，即排队节奏正常（有足量叫号样本且平均间隔小于 10 分钟） */
-  const { etaText, etaMinutes } = buildWaitDisplay();
-  return {
-    queueStateKind: 'normal',
-    queueStateTitle: '排队正常',
-    etaText,
-    etaMinutes
-  };
-}
+/** 预计等候文案完全由 GET /wechat/my-queue-ahead 返回的 waitEstimate 驱动（与后台 queue/status 同源 pace） */
 
 function requestGet(url, header = {}) {
   return new Promise((resolve) => {
@@ -116,10 +38,9 @@ function requestGet(url, header = {}) {
   });
 }
 
-function mapRowToListItem(row, idx, statusByAid, aheadByKey) {
+function mapRowToListItem(row, idx, aheadByKey) {
   const aid = row.activityId != null ? String(row.activityId) : '';
   const qn = row.queueNumber;
-  const st = aid ? statusByAid[aid] : null;
   const aKey = `${aid}_${qn}`;
   const pack = aheadByKey[aKey];
   const aheadRes = pack && pack.ahead;
@@ -137,12 +58,39 @@ function mapRowToListItem(row, idx, statusByAid, aheadByKey) {
     aheadLine = pack.hint;
   }
 
-  const aheadForEta =
-    aheadRes && aheadRes.inWaitingQueue === true && typeof aheadRes.aheadCount === 'number'
-      ? aheadRes.aheadCount
-      : null;
+  const paused = !!(aheadRes && aheadRes.queuePaused);
+  const est = (aheadRes && aheadRes.waitEstimate) || {};
 
-  const qf = computeQueueFields(st, aheadForEta);
+  let queueStateKind = 'unknown';
+  let queueStateTitle = '排队状态获取失败';
+  let etaRangeMin = null;
+  let etaRangeMax = null;
+  let etaSingleText = '';
+
+  if (paused || est.kind === 'paused') {
+    queueStateKind = 'paused';
+    queueStateTitle = '暂停排队';
+  } else if (aheadRes && aheadRes.inWaitingQueue === true) {
+    if (est.kind === 'long_wait') {
+      queueStateKind = 'longWait';
+      queueStateTitle = '';
+    } else if (est.kind === 'range' && est.minMinutes != null && est.maxMinutes != null) {
+      queueStateKind = 'normal';
+      queueStateTitle = '';
+      etaRangeMin = est.minMinutes;
+      etaRangeMax = est.maxMinutes;
+    } else {
+      queueStateKind = 'normal';
+      queueStateTitle = '';
+      etaSingleText = '暂时无法预估等候时间';
+    }
+  } else if (aheadRes && aheadRes.inWaitingQueue === false) {
+    queueStateKind = 'notWaiting';
+    queueStateTitle = '当前不在等待叫号队列';
+  } else {
+    queueStateKind = 'unknown';
+    queueStateTitle = '请下拉刷新或稍后再试';
+  }
 
   return {
     rowKey: `${aKey}_${idx}`,
@@ -156,14 +104,32 @@ function mapRowToListItem(row, idx, statusByAid, aheadByKey) {
     showAhead: true,
     aheadLine,
     aheadParts,
-    ...qf
+    queueStateKind,
+    queueStateTitle,
+    etaRangeMin,
+    etaRangeMax,
+    etaSingleText
+  };
+}
+
+function mapCalledTodayItem(row, idx) {
+  return {
+    rowKey: `ct_${idx}_${String(row.calledAt || '')}_${String(row.queueNumber || '')}`,
+    cardKind: 'calledToday',
+    activityName: row.activityName || '',
+    userScanBoundText: formatScanTime(row.claimedAt || row.userScanBoundAt),
+    queueNumber: row.queueNumber,
+    statusText: '已叫号',
+    calledAtText: formatScanTime(row.calledAt)
   };
 }
 
 Page({
   data: {
     loading: true,
+    refreshing: false,
     list: [],
+    calledTodayList: [],
     empty: false
   },
 
@@ -179,10 +145,35 @@ Page({
 
   onHide() {
     this.clearAutoRefresh();
+    if (this.data.refreshing) {
+      try {
+        wx.hideNavigationBarLoading();
+      } catch (e) {
+        /* ignore */
+      }
+      this.setData({ refreshing: false });
+    }
+    try {
+      wx.stopPullDownRefresh();
+    } catch (e) {
+      /* ignore */
+    }
   },
 
   onUnload() {
     this.clearAutoRefresh();
+    if (this.data.refreshing) {
+      try {
+        wx.hideNavigationBarLoading();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    try {
+      wx.stopPullDownRefresh();
+    } catch (e) {
+      /* ignore */
+    }
   },
 
   /** 每 2 秒静默拉取列表与排队状态（离开页面务必清除） */
@@ -207,7 +198,28 @@ Page({
     const isStale = () => myGen !== this._loadBindingsGen;
 
     const finishPull = () => {
-      if (pullDown) wx.stopPullDownRefresh();
+      if (pullDown) {
+        wx.stopPullDownRefresh();
+        try {
+          wx.hideNavigationBarLoading();
+        } catch (e) {
+          /* ignore */
+        }
+        this.setData({ refreshing: false });
+      }
+    };
+
+    /** 手动下拉成功后再给 Toast，略延迟，避免与收起动画叠在一起显得「没反馈」 */
+    const schedulePullSuccessFeedback = () => {
+      if (!pullDown) return;
+      setTimeout(() => {
+        if (isStale()) return;
+        wx.showToast({
+          title: '刷新成功',
+          icon: 'success',
+          duration: 1500
+        });
+      }, 280);
     };
 
     const cached = wx.getStorageSync('userInfo') || {};
@@ -215,7 +227,7 @@ Page({
     if (!token) {
       this.clearAutoRefresh();
       this._myBindingsHasLoaded = false;
-      this.setData({ loading: false, list: [], empty: true });
+      this.setData({ loading: false, list: [], calledTodayList: [], empty: true });
       wx.showToast({ title: '请先登录', icon: 'none' });
       finishPull();
       return;
@@ -223,6 +235,14 @@ Page({
 
     if (!pullDown && !silent) {
       this.setData({ loading: true });
+    }
+    if (pullDown) {
+      this.setData({ refreshing: true });
+      try {
+        wx.showNavigationBarLoading();
+      } catch (e) {
+        /* ignore */
+      }
     }
     const base = String(app.globalData.API_URL || '').replace(/\/$/, '');
     const authHeader = { Authorization: `Bearer ${token}` };
@@ -234,7 +254,7 @@ Page({
       }
       if (wipeList) {
         this._myBindingsHasLoaded = false;
-        this.setData({ loading: false, list: [], empty: true });
+        this.setData({ loading: false, list: [], calledTodayList: [], empty: true });
       } else {
         this.setData({ loading: false });
       }
@@ -243,24 +263,31 @@ Page({
     };
 
     const afterBindings = (visible, openid) => {
-      if (!visible.length) {
-        if (!isStale()) {
-          this.setData({ loading: false, list: [], empty: true });
-          this._myBindingsHasLoaded = true;
+      const calledPromise = requestGet(
+        `${base}/wechat/my-customer-called-today?openid=${encodeURIComponent(openid)}`,
+        authHeader
+      ).then((r) => {
+        if (r.statusCode === 200 && r.data && r.data.success && Array.isArray(r.data.data)) {
+          return r.data.data;
         }
-        finishPull();
+        return [];
+      });
+
+      if (!visible.length) {
+        calledPromise.then((calledRows) => {
+          if (isStale()) {
+            finishPull();
+            return;
+          }
+          const calledTodayList = (calledRows || []).map((row, idx) => mapCalledTodayItem(row, idx));
+          const empty = calledTodayList.length === 0;
+          this.setData({ loading: false, list: [], calledTodayList, empty });
+          this._myBindingsHasLoaded = true;
+          finishPull();
+          schedulePullSuccessFeedback();
+        });
         return;
       }
-      const aids = [...new Set(visible.map((r) => (r.activityId != null ? String(r.activityId) : '')).filter(Boolean))];
-
-      const statusPromise = Promise.all(
-        aids.map((aid) =>
-          requestGet(`${base}/queue/status/${encodeURIComponent(aid)}`).then((r) => ({
-            aid,
-            body: r.statusCode === 200 && r.data && !r.data.error ? r.data : null
-          }))
-        )
-      );
 
       const aheadPromise = Promise.all(
         visible.map((row) => {
@@ -288,23 +315,22 @@ Page({
         })
       );
 
-      Promise.all([statusPromise, aheadPromise]).then(([statusResults, aheadResults]) => {
+      Promise.all([aheadPromise, calledPromise]).then(([aheadResults, calledRows]) => {
         if (isStale()) {
           finishPull();
           return;
         }
-        const statusByAid = {};
-        statusResults.forEach(({ aid, body }) => {
-          statusByAid[aid] = body;
-        });
         const aheadByKey = {};
         aheadResults.forEach(({ key, ahead, hint }) => {
           aheadByKey[key] = { ahead, hint };
         });
-        const list = visible.map((row, idx) => mapRowToListItem(row, idx, statusByAid, aheadByKey));
-        this.setData({ loading: false, list, empty: list.length === 0 });
+        const list = visible.map((row, idx) => mapRowToListItem(row, idx, aheadByKey));
+        const calledTodayList = (calledRows || []).map((row, idx) => mapCalledTodayItem(row, idx));
+        const empty = list.length === 0 && calledTodayList.length === 0;
+        this.setData({ loading: false, list, calledTodayList, empty });
         this._myBindingsHasLoaded = true;
         finishPull();
+        schedulePullSuccessFeedback();
       });
     };
 
@@ -387,6 +413,11 @@ Page({
   },
 
   onPullDownRefresh() {
+    this.loadBindings({ pullDown: true });
+  },
+
+  /** scroll-view 自定义下拉（与页面级下拉二选一触发即可） */
+  onRefresherRefresh() {
     this.loadBindings({ pullDown: true });
   }
 });

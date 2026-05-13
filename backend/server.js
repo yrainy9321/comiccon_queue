@@ -179,6 +179,13 @@ let wechatUsers = loadData('wechat_users.json') || {};
 // 加载手环与openid的绑定关系 (braceletId -> openid)
 let braceletBindings = loadData('bracelet_bindings.json') || {};
 
+/** 后台「制作手环」批量生成的批次记录（含编号列表，用于导出与防重复） */
+let braceletMakeBatches = loadData('bracelet_make_batches.json') || [];
+if (!Array.isArray(braceletMakeBatches)) {
+  console.warn('[bracelet_make_batches] 数据文件不是数组，已重置为空列表');
+  braceletMakeBatches = [];
+}
+
 /** 以下依赖 activities / queues 已加载 */
 function findActivityByFlexibleId(activityId) {
   if (activityId == null || activityId === '') return null;
@@ -386,6 +393,76 @@ function normalizeQueueResponse(q) {
   };
 }
 
+const BRACELET_BATCH_MAX = 10000;
+
+function userCanManageBraceletBatches(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return Array.isArray(user.permissions) && user.permissions.includes('activity.manage');
+}
+
+function collectOccupiedBraceletIdSet() {
+  const set = new Set();
+  for (const q of queues) {
+    const k = braceletKeyNormalize(queueBraceletKey(q));
+    if (k) set.add(k);
+  }
+  for (const batch of braceletMakeBatches) {
+    const ids = Array.isArray(batch.braceletIds) ? batch.braceletIds : [];
+    for (const id of ids) {
+      const k = braceletKeyNormalize(String(id || ''));
+      if (k) set.add(k);
+    }
+  }
+  return set;
+}
+
+function genMgBraceletId() {
+  const buf = crypto.randomBytes(24);
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = 'MG#';
+  for (let i = 0; i < 24; i++) {
+    s += alphabet[buf[i] % alphabet.length];
+  }
+  return s;
+}
+
+function generateUniqueBraceletIds(want, occupiedSet) {
+  const out = [];
+  const local = new Set(occupiedSet);
+  let guard = 0;
+  const maxTry = Math.max(want * 200, 10000);
+  while (out.length < want && guard < maxTry) {
+    guard += 1;
+    const id = genMgBraceletId();
+    const k = braceletKeyNormalize(id);
+    if (local.has(k)) continue;
+    local.add(k);
+    out.push(id);
+  }
+  if (out.length < want) {
+    throw new Error('手环去重后无法生成足够数量的唯一编号，请稍后重试');
+  }
+  return out;
+}
+
+function activityEligibleForBindRegisterBatch(activity) {
+  if (!activity || activity.status === 'deleted') return false;
+  if (activity.status !== 'active') return false;
+  if (activity.batchBraceletBindDone === true) return false;
+  const aid = canonicalActivityIdForPersist(activity);
+  if (!aid) return false;
+  const cnt = queues.filter((q) => activityIdMatches(q.activityId, aid)).length;
+  if (cnt > 0) return false;
+  const used = braceletMakeBatches.some(
+    (b) =>
+      b &&
+      b.kind === 'bind_register' &&
+      activityIdMatches(String(b.activityId || ''), aid)
+  );
+  return !used;
+}
+
 let currentUser = null;
 
 // 微信消息推送配置
@@ -499,6 +576,14 @@ async function getAccessToken() {
 /** 订阅消息卡片点击后打开的小程序页面（须在 app.json 注册） */
 const SUBSCRIBE_MESSAGE_LANDING_PAGE = 'pages/my-bindings/index';
 
+/** 小程序上报的各模板授权状态（accept / reject / ban），用于下发前跳过明确拒绝 */
+function subscribeTemplateStatusForUser(openid, templateId) {
+  const u = wechatUsers[String(openid || '')];
+  if (!u || !u.subscribeTemplates || typeof u.subscribeTemplates !== 'object') return null;
+  const s = u.subscribeTemplates[String(templateId)];
+  return s ? String(s) : null;
+}
+
 // 发送订阅消息
 async function sendSubscribeMessage(openid, templateId, data, page = SUBSCRIBE_MESSAGE_LANDING_PAGE) {
   const payload = {
@@ -514,6 +599,17 @@ async function sendSubscribeMessage(openid, templateId, data, page = SUBSCRIBE_M
       console.error(
         '[订阅消息] 跳过发送：openid 非微信真实用户（常见原因：小程序登录超时使用了 temp_ 临时身份）。raw=%s',
         String(openid || '').slice(0, 32)
+      );
+      return false;
+    }
+
+    const st = subscribeTemplateStatusForUser(openid, templateId);
+    if (st === 'reject' || st === 'ban') {
+      console.warn(
+        '[订阅消息] 按用户授权状态跳过发送 openid=%s template=%s status=%s',
+        maskOpenid(openid),
+        templateId,
+        st
       );
       return false;
     }
@@ -762,6 +858,222 @@ app.get('/api/admin/system-logs', (req, res) => {
     count: items.length,
     file: 'backend/data/system_logs.jsonl',
     items
+  });
+});
+
+/** 制作手环：可选「制作并登记」的活动下拉（须注册在 /bracelet-batches/:id 之前） */
+app.get('/api/admin/bracelet-batches/eligible-bind-activities', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) return res.status(401).json({ error: '未授权' });
+  if (!userCanManageBraceletBatches(user)) {
+    return res.status(403).json({ error: '无权访问制作手环功能' });
+  }
+  const out = [];
+  for (const a of activities) {
+    if (!a || a.status === 'deleted') continue;
+    if (a.status !== 'active') continue;
+    if (a.batchBraceletBindDone === true) continue;
+    const aid = canonicalActivityIdForPersist(a);
+    if (!aid) continue;
+    const cnt = queues.filter((q) => activityIdMatches(q.activityId, aid)).length;
+    if (cnt > 0) continue;
+    const used = braceletMakeBatches.some(
+      (b) =>
+        b && b.kind === 'bind_register' && activityIdMatches(String(b.activityId || ''), aid)
+    );
+    if (used) continue;
+    out.push({ _id: a._id, name: a.name || aid });
+  }
+  res.json({ success: true, data: out });
+});
+
+/** 制作并登记：生成手环 + 排队记录（每活动仅一次） */
+app.post('/api/admin/bracelet-batches/bind-register', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) return res.status(401).json({ error: '未授权' });
+  if (!userCanManageBraceletBatches(user)) {
+    return res.status(403).json({ error: '无权访问制作手环功能' });
+  }
+  const activityIdIn = String((req.body && req.body.activityId) || '').trim();
+  const n = parseInt(String((req.body && req.body.count) != null ? req.body.count : '0'), 10);
+  if (!activityIdIn) return res.status(400).json({ error: '请选择活动' });
+  if (!Number.isFinite(n) || n < 1 || n > BRACELET_BATCH_MAX) {
+    return res.status(400).json({ error: `数量须在 1～${BRACELET_BATCH_MAX}` });
+  }
+  const activity = findActivityByFlexibleId(activityIdIn);
+  if (!activity) return res.status(404).json({ error: '活动不存在' });
+  if (!activityEligibleForBindRegisterBatch(activity)) {
+    return res
+      .status(400)
+      .json({ error: '该活动不符合「制作并登记」条件（须已启用、无登记、且未使用过本功能）' });
+  }
+  const aid = canonicalActivityIdForPersist(activity);
+  try {
+    const occupied = collectOccupiedBraceletIdSet();
+    const ids = generateUniqueBraceletIds(n, occupied);
+    const batchId = Date.now().toString();
+    const queueNums = [];
+    for (let i = 0; i < n; i++) {
+      const numStr = String(i + 1);
+      queueNums.push(numStr);
+      const q = {
+        _id: `${batchId}-${i}`,
+        activityId: aid,
+        手环编号: ids[i],
+        号码: numStr,
+        status: 'waiting',
+        boundBy: user.username || 'admin',
+        batchBindLocked: true,
+        createdAt: new Date()
+      };
+      queues.push(q);
+    }
+    activity.batchBraceletBindDone = true;
+    activity.currentNumber = Math.max(Number(activity.currentNumber) || 0, n);
+    activity.updatedBy = user.username;
+    activity.updatedAt = new Date();
+    const batch = {
+      _id: batchId,
+      kind: 'bind_register',
+      label: '制作并登记',
+      count: n,
+      createdAt: new Date(),
+      createdBy: user.username || '',
+      activityId: aid,
+      activityName: activity.name || '',
+      braceletIds: ids,
+      queueNumbers: queueNums
+    };
+    braceletMakeBatches.push(batch);
+    saveData('queues.json', queues);
+    saveData('activities.json', activities);
+    saveData('bracelet_make_batches.json', braceletMakeBatches);
+    res.json({ success: true, count: n, batchId });
+  } catch (e) {
+    console.error('[POST /api/admin/bracelet-batches/bind-register]', e);
+    res.status(500).json({ error: e.message || '生成失败' });
+  }
+});
+
+app.post('/api/admin/bracelet-batches', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) return res.status(401).json({ error: '未授权' });
+  if (!userCanManageBraceletBatches(user)) {
+    return res.status(403).json({ error: '无权访问制作手环功能' });
+  }
+  const kind = (req.body && req.body.kind) || 'normal';
+  const n = parseInt(String((req.body && req.body.count) != null ? req.body.count : '0'), 10);
+  if (!Number.isFinite(n) || n < 1 || n > BRACELET_BATCH_MAX) {
+    return res.status(400).json({ error: `数量须在 1～${BRACELET_BATCH_MAX}` });
+  }
+  try {
+    const occupied = collectOccupiedBraceletIdSet();
+    const ids = generateUniqueBraceletIds(n, occupied);
+    const batch = {
+      _id: Date.now().toString(),
+      kind: kind === 'bind_register' ? 'bind_register' : 'normal',
+      label:
+        kind === 'bind_register'
+          ? '制作并登记'
+          : kind === 'normal'
+            ? '普通手环'
+            : '手环',
+      count: ids.length,
+      createdAt: new Date(),
+      createdBy: user.username || '',
+      braceletIds: ids
+    };
+    braceletMakeBatches.push(batch);
+    saveData('bracelet_make_batches.json', braceletMakeBatches);
+    res.json({ success: true, count: ids.length, _id: batch._id });
+  } catch (e) {
+    console.error('[POST /api/admin/bracelet-batches]', e);
+    res.status(500).json({ error: e.message || '生成失败' });
+  }
+});
+
+app.get('/api/admin/bracelet-batches/:id', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) return res.status(401).json({ error: '未授权' });
+  if (!userCanManageBraceletBatches(user)) {
+    return res.status(403).json({ error: '无权访问制作手环功能' });
+  }
+  const id = String(req.params.id || '');
+  const b = braceletMakeBatches.find((x) => String(x._id) === id);
+  if (!b) return res.status(404).json({ error: '批次不存在' });
+  res.json({
+    _id: b._id,
+    kind: b.kind,
+    braceletIds: Array.isArray(b.braceletIds) ? b.braceletIds : [],
+    queueNumbers: Array.isArray(b.queueNumbers) ? b.queueNumbers : []
+  });
+});
+
+/** 制作手环：批次列表（分页、排序） */
+app.get('/api/admin/bracelet-batches', (req, res) => {
+  const raw = req.headers.authorization || '';
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  const user = validateToken(token);
+  if (!user) return res.status(401).json({ error: '未授权' });
+  if (!userCanManageBraceletBatches(user)) {
+    return res.status(403).json({ error: '无权访问制作手环功能' });
+  }
+  const skB = String(req.query.sortBy || 'createdAt').trim();
+  const soB = String(req.query.sortOrder || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+  const allowB = new Set(['createdAt', 'count', 'activityName', 'createdBy', '_id']);
+  const keyB = allowB.has(skB) ? skB : 'createdAt';
+  const list = [...(Array.isArray(braceletMakeBatches) ? braceletMakeBatches : [])].sort((a, b) => {
+    let cmp = 0;
+    if (keyB === 'createdAt') {
+      cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+    } else if (keyB === 'count') {
+      const ca = a.count != null ? a.count : Array.isArray(a.braceletIds) ? a.braceletIds.length : 0;
+      const cb = b.count != null ? b.count : Array.isArray(b.braceletIds) ? b.braceletIds.length : 0;
+      cmp = Number(ca) - Number(cb);
+    } else if (keyB === 'activityName' || keyB === 'createdBy') {
+      cmp = String(a[keyB] || '').localeCompare(String(b[keyB] || ''), 'zh-CN');
+    } else if (keyB === '_id') {
+      cmp = String(a._id || '').localeCompare(String(b._id || ''));
+    }
+    if (cmp === 0) cmp = String(a._id || '').localeCompare(String(b._id || ''));
+    return cmp * soB;
+  });
+  const total = list.length;
+  let pageNum = parseInt(String(req.query.page || '1'), 10);
+  let pageSizeNum = parseInt(String(req.query.pageSize || '10'), 10);
+  if (!Number.isFinite(pageNum) || pageNum < 1) pageNum = 1;
+  if (!Number.isFinite(pageSizeNum) || pageSizeNum < 1) pageSizeNum = 10;
+  pageSizeNum = Math.min(100, pageSizeNum);
+  const totalPages = Math.max(1, Math.ceil(total / pageSizeNum));
+  if (pageNum > totalPages) pageNum = totalPages;
+  const start = (pageNum - 1) * pageSizeNum;
+  const slice = list.slice(start, start + pageSizeNum);
+  res.json({
+    data: slice.map((b) => ({
+      _id: b._id,
+      kind: b.kind || 'normal',
+      label:
+        b.label ||
+        (b.kind === 'bind_register' ? '制作并登记' : b.kind === 'normal' ? '普通手环' : '手环'),
+      count:
+        b.count != null ? b.count : Array.isArray(b.braceletIds) ? b.braceletIds.length : 0,
+      createdAt: b.createdAt,
+      createdBy: b.createdBy || '',
+      activityId: b.activityId || '',
+      activityName: b.activityName || ''
+    })),
+    total,
+    page: pageNum,
+    pageSize: pageSizeNum,
+    totalPages
   });
 });
 
@@ -1303,31 +1615,20 @@ app.get('/api/queue/status/:activityId', (req, res) => {
 
   const lastCalled = calledQueues.length > 0 ? queueNumberRaw(calledQueues[0]) : 0;
 
-  let avgIntervalSeconds = 0;
-  let avgIntervalMinutes = 0;
-
-  if (calledQueues.length >= 5) {
-    const recentQueues = calledQueues.slice(0, 5);
-    let totalInterval = 0;
-    let count = 0;
-
-    for (let i = 0; i < recentQueues.length - 1; i++) {
-      const current = new Date(recentQueues[i].calledAt);
-      const next = new Date(recentQueues[i + 1].calledAt);
-      const interval = current - next;
-      if (interval > 0) {
-        totalInterval += interval;
-        count++;
-      }
-    }
-
-    if (count > 0) {
-      avgIntervalSeconds = Math.round(totalInterval / count / 1000);
-      avgIntervalMinutes = Math.round(avgIntervalSeconds / 60);
-    }
-  }
-
-  const isSlow = calledQueues.length < 5 || avgIntervalMinutes >= 10;
+  const pace = computeActivityCallFlowPace(aid);
+  const avgIntervalSeconds =
+    pace.hasSamples && pace.secPerPersonCore != null && Number.isFinite(pace.secPerPersonCore)
+      ? Math.round(pace.secPerPersonCore)
+      : null;
+  const avgIntervalMinutes =
+    avgIntervalSeconds == null ? null : Math.round(avgIntervalSeconds / 60);
+  /** 与小程序同一 pace：服务节奏偏慢或长时间未叫号且仍有排队 */
+  const isSlow =
+    !pace.hasSamples ||
+    (pace.secPerPersonCore != null &&
+      Number.isFinite(pace.secPerPersonCore) &&
+      pace.secPerPersonCore >= 600) ||
+    (pace.stallBoost >= 1.75 && queueCount > 0);
 
   const currentNumber = activity
     ? Number(activity.currentNumber) || 0
@@ -1340,8 +1641,11 @@ app.get('/api/queue/status/:activityId', (req, res) => {
     lastCalled,
     avgIntervalSeconds,
     avgIntervalMinutes,
+    hasPaceSamples: pace.hasSamples,
     isSlow,
-    queuePaused
+    queuePaused,
+    estimateComputedAt: pace.computedAt,
+    estimateSource: pace.source
   });
 });
 
@@ -1852,6 +2156,49 @@ app.get('/api/wechat/user', (req, res) => {
   });
 });
 
+/**
+ * 小程序静默上报 wx.requestSubscribeMessage 各模板结果（accept/reject/ban），
+ * 用于后端 send 前跳过 reject/ban，并累计粗略统计。
+ */
+app.post('/api/wechat/subscribe-report', (req, res) => {
+  const token = readBearerToken(req);
+  if (!token) {
+    return res.status(401).json({ success: false, error: '未授权' });
+  }
+  const user = Object.values(wechatUsers).find((u) => u.token === token);
+  if (!user || !user.openid) {
+    return res.status(401).json({ success: false, error: '用户不存在或已过期' });
+  }
+  const oid = String(user.openid);
+  const results = req.body && req.body.results;
+  if (!results || typeof results !== 'object') {
+    return res.status(400).json({ success: false, error: '缺少 results 对象' });
+  }
+  if (!wechatUsers[oid]) {
+    wechatUsers[oid] = user;
+  }
+  if (!wechatUsers[oid].subscribeTemplates || typeof wechatUsers[oid].subscribeTemplates !== 'object') {
+    wechatUsers[oid].subscribeTemplates = {};
+  }
+  if (!wechatUsers[oid].subscribeStats || typeof wechatUsers[oid].subscribeStats !== 'object') {
+    wechatUsers[oid].subscribeStats = { accept: 0, reject: 0, ban: 0, other: 0, reports: 0 };
+  }
+  const stats = wechatUsers[oid].subscribeStats;
+  stats.reports = (Number(stats.reports) || 0) + 1;
+  Object.keys(results).forEach((tid) => {
+    const v = String(results[tid] || '').trim();
+    if (!tid || !v) return;
+    wechatUsers[oid].subscribeTemplates[tid] = v;
+    if (v === 'accept') stats.accept = (Number(stats.accept) || 0) + 1;
+    else if (v === 'reject') stats.reject = (Number(stats.reject) || 0) + 1;
+    else if (v === 'ban') stats.ban = (Number(stats.ban) || 0) + 1;
+    else stats.other = (Number(stats.other) || 0) + 1;
+  });
+  wechatUsers[oid].subscribeTemplatesUpdatedAt = new Date().toISOString();
+  saveData('wechat_users.json', wechatUsers);
+  res.json({ success: true });
+});
+
 // ========== 后台管理API ==========
 
 // 获取所有微信用户列表（后台管理用）
@@ -2340,6 +2687,192 @@ function getAheadCountForCustomerQueue(activityId, queueNumber, openid) {
   };
 }
 
+/** 叫号流速：批量叫号（时间戳几乎相同）聚成一批；批与批之间的墙钟间隔 ÷ 本批人数 → 单人吞吐；近期样本指数加权 */
+const PACE_WINDOW_MS = 90 * 60 * 1000;
+const PACE_BATCH_GAP_MS = 5000;
+const PACE_MIN_STEP_MS = 3000;
+const PACE_TAU_MS = 15 * 60 * 1000;
+const PACE_MIN_SEC_PER_PERSON = 12;
+const PACE_MAX_SEC_PER_PERSON = 3600;
+/** 近窗内无任何已叫号样本时：不臆造人均秒数，用极大吞吐占位使 waitEstimate 落入「1小时以上」 */
+const PACE_NO_SAMPLE_ESTIMATE_SEC = PACE_MAX_SEC_PER_PERSON * 2;
+
+/**
+ * 队伍「卡住」：距上次叫号越久，人均估算秒数逐渐顶到 cap，便于前端显示「1小时以上」。
+ * @param {number} secPerPersonCore 已夹在 [PACE_MIN_SEC_PER_PERSON, PACE_MAX_SEC_PER_PERSON]
+ * @param {number} stallSec 距最后一次叫号的秒数
+ */
+function applyStallIdleInflation(secPerPersonCore, stallSec) {
+  const cap = PACE_NO_SAMPLE_ESTIMATE_SEC;
+  const floor = Math.max(PACE_MIN_SEC_PER_PERSON, secPerPersonCore);
+
+  if (stallSec <= 120) {
+    const est = Math.min(cap, floor);
+    return {
+      secPerPersonForEstimate: est,
+      stallBoost: secPerPersonCore > 1e-9 ? est / secPerPersonCore : 1
+    };
+  }
+
+  if (stallSec <= 300) {
+    const u = (stallSec - 120) / (300 - 120);
+    const mult = 1 + u * 2;
+    const est = Math.min(cap, Math.max(PACE_MIN_SEC_PER_PERSON, floor * mult));
+    return {
+      secPerPersonForEstimate: est,
+      stallBoost: secPerPersonCore > 1e-9 ? est / secPerPersonCore : mult
+    };
+  }
+
+  const v = Math.min(1, (stallSec - 300) / 300);
+  const mid = Math.min(cap, floor * 3);
+  const eased = v * v;
+  const est = Math.min(
+    cap,
+    Math.max(PACE_MIN_SEC_PER_PERSON, mid + (cap - mid) * eased)
+  );
+  return {
+    secPerPersonForEstimate: est,
+    stallBoost: secPerPersonCore > 1e-9 ? est / secPerPersonCore : 1 + eased * 100
+  };
+}
+
+function computeActivityCallFlowPace(activityId) {
+  const now = Date.now();
+  const computedAt = new Date().toISOString();
+  const called = queues.filter(
+    (q) => activityIdMatches(q.activityId, activityId) && q.status === 'called' && q.calledAt
+  );
+  const events = called
+    .map((q) => ({ t: new Date(q.calledAt).getTime() }))
+    .filter((e) => !Number.isNaN(e.t) && e.t <= now && e.t >= now - PACE_WINDOW_MS)
+    .sort((a, b) => a.t - b.t);
+
+  if (events.length === 0) {
+    return {
+      hasSamples: false,
+      secPerPersonCore: null,
+      stallBoost: 1,
+      secPerPersonForEstimate: PACE_NO_SAMPLE_ESTIMATE_SEC,
+      source: 'no_samples',
+      batchCount: 0,
+      lastCallAtMs: null,
+      computedAt
+    };
+  }
+
+  const batchRanges = [];
+  let lo = 0;
+  for (let i = 1; i <= events.length; i++) {
+    if (i === events.length || events[i].t - events[i - 1].t > PACE_BATCH_GAP_MS) {
+      batchRanges.push({ lo, hi: i - 1 });
+      lo = i;
+    }
+  }
+  const batchMeta = batchRanges.map(({ lo, hi }) => ({
+    tFirst: events[lo].t,
+    tLast: events[hi].t,
+    count: hi - lo + 1
+  }));
+
+  let secPerPersonCore;
+  let source;
+
+  if (batchMeta.length >= 2) {
+    let wSum = 0;
+    let rSum = 0;
+    for (let i = 1; i < batchMeta.length; i++) {
+      const prev = batchMeta[i - 1];
+      const cur = batchMeta[i];
+      const deltaMs = Math.max(PACE_MIN_STEP_MS, cur.tLast - prev.tLast);
+      const r = cur.count / (deltaMs / 1000);
+      const age = now - cur.tLast;
+      const w = Math.exp(-age / PACE_TAU_MS);
+      wSum += w;
+      rSum += w * r;
+    }
+    if (wSum > 1e-9) {
+      const weightedR = rSum / wSum;
+      if (weightedR > 1e-9) {
+        secPerPersonCore = 1 / weightedR;
+        source = 'weighted_batches';
+      }
+    }
+    if (secPerPersonCore == null) {
+      const spanSec = Math.max(PACE_MIN_STEP_MS / 1000, (now - events[0].t) / 1000);
+      secPerPersonCore = spanSec / Math.max(1, events.length);
+      source = 'window_total_fallback';
+    }
+  } else {
+    const b = batchMeta[0];
+    const spanSec = Math.max(180, (now - b.tFirst) / 1000);
+    secPerPersonCore = spanSec / Math.max(1, b.count);
+    source = 'single_batch_window';
+  }
+
+  secPerPersonCore = Math.min(
+    PACE_MAX_SEC_PER_PERSON,
+    Math.max(PACE_MIN_SEC_PER_PERSON, secPerPersonCore)
+  );
+
+  const lastCallAtMs = batchMeta[batchMeta.length - 1].tLast;
+  const stallSec = (now - lastCallAtMs) / 1000;
+  const { secPerPersonForEstimate, stallBoost } = applyStallIdleInflation(secPerPersonCore, stallSec);
+
+  return {
+    hasSamples: true,
+    secPerPersonCore,
+    stallBoost,
+    secPerPersonForEstimate,
+    source,
+    batchCount: batchMeta.length,
+    lastCallAtMs,
+    computedAt
+  };
+}
+
+/**
+ * 小程序 my-queue-ahead：在 ahead 结果上附加 queuePaused、waitEstimate（后端统一口径，含千人千面区间）
+ */
+function buildMyQueueAheadPayload(resolvedActivityId, queueNumber, qOpenid) {
+  const activity = findActivityByFlexibleId(resolvedActivityId);
+  const queuePaused = activity ? Boolean(activity.queuePaused) : false;
+  const pace = computeActivityCallFlowPace(resolvedActivityId);
+  const aheadOut = getAheadCountForCustomerQueue(resolvedActivityId, queueNumber, qOpenid);
+
+  let waitEstimate;
+  if (queuePaused) {
+    waitEstimate = { kind: 'paused', computedAt: pace.computedAt };
+  } else if (!aheadOut.inWaitingQueue) {
+    waitEstimate = { kind: 'not_in_queue', computedAt: pace.computedAt };
+  } else if (aheadOut.aheadCount == null) {
+    waitEstimate = { kind: 'unknown', computedAt: pace.computedAt };
+  } else if (aheadOut.aheadCount <= 0) {
+    waitEstimate = { kind: 'range', minMinutes: 1, maxMinutes: 2, computedAt: pace.computedAt };
+  } else {
+    const a = aheadOut.aheadCount;
+    const baseSec = a * pace.secPerPersonForEstimate;
+    const minM = Math.max(1, Math.floor((baseSec * 0.85) / 60));
+    const maxM = Math.max(minM, Math.ceil((baseSec * 1.22) / 60));
+    if (maxM > 60) {
+      waitEstimate = { kind: 'long_wait', computedAt: pace.computedAt };
+    } else {
+      waitEstimate = {
+        kind: 'range',
+        minMinutes: minM,
+        maxMinutes: maxM,
+        computedAt: pace.computedAt
+      };
+    }
+  }
+
+  return {
+    queuePaused,
+    waitEstimate,
+    ...aheadOut
+  };
+}
+
 /** boundBy 为已注册微信用户 openid 时，视为小程序员工端 bind-manual 登记（与后台「作为员工」一致） */
 function isRegisteredByStaffMiniProgram(q) {
   const oby = String(q.boundBy || '');
@@ -2612,12 +3145,12 @@ app.get('/api/wechat/my-queue-ahead', (req, res) => {
    */
   const activity = findActivityByFlexibleId(activityIdRaw);
   const resolvedId = activity ? canonicalActivityIdForPersist(activity) : activityIdRaw;
-  const out = getAheadCountForCustomerQueue(resolvedId, queueNumber, qOpenid);
+  const merged = buildMyQueueAheadPayload(resolvedId, queueNumber, qOpenid);
   res.json({
     success: true,
     activityId: resolvedId,
     queueNumber: String(queueNumber),
-    ...out
+    ...merged
   });
 });
 
@@ -2711,6 +3244,53 @@ app.get('/api/wechat/my-scanned-bindings', (req, res) => {
     };
   });
   
+  res.json({ success: true, data });
+});
+
+/** 小程序「我的绑定」：当日已叫号（与 queueMatchesUserAsCustomer 一致；calledAt 落在当天 0:00～24:00，服务器本地时区） */
+app.get(['/api/wechat/my-called-today', '/api/wechat/my-customer-called-today'], (req, res) => {
+  const token = readBearerToken(req);
+  if (!token) {
+    return res.status(401).json({ success: false, error: '未授权' });
+  }
+  const sessionUser = Object.values(wechatUsers).find((u) => u.token === token);
+  if (!sessionUser || !sessionUser.openid) {
+    return res.status(401).json({ success: false, error: '用户不存在或已过期' });
+  }
+  const qOpenid = String(req.query.openid || '').trim() || String(sessionUser.openid);
+  if (String(sessionUser.openid) !== qOpenid) {
+    return res.status(403).json({
+      success: false,
+      error: 'openid 与当前登录不一致，请重新进入小程序或下拉刷新'
+    });
+  }
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const endMs = start.getTime() + 86400000;
+
+  const rows = queues.filter((q) => {
+    if (q.status !== 'called') return false;
+    if (!q.calledAt) return false;
+    const t = new Date(q.calledAt).getTime();
+    if (Number.isNaN(t) || t < start.getTime() || t >= endMs) return false;
+    return queueMatchesUserAsCustomer(q, qOpenid);
+  });
+  const data = rows
+    .map((q) => {
+      const activity = findActivityByFlexibleId(q.activityId);
+      return {
+        activityId: q.activityId,
+        activityName: activity ? activity.name : '',
+        braceletId: q.braceletId || q['手环编号'] || '',
+        queueNumber: String(q.queueNumber || q['号码'] || ''),
+        status: q.status,
+        calledAt: q.calledAt,
+        userScanBoundAt: q.userScanBoundAt || q.claimedAt,
+        /** 与历史小程序字段对齐，等同 userScanBoundAt（扫码领取时间） */
+        claimedAt: q.userScanBoundAt || q.claimedAt
+      };
+    })
+    .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt));
   res.json({ success: true, data });
 });
 

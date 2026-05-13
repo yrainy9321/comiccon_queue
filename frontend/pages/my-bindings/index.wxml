@@ -2,10 +2,23 @@
   <view wx:if="{{loading}}" class="state">加载中…</view>
 
   <block wx:elif="{{empty}}">
-    <view class="empty-wrap">
-      <text class="empty-title">暂无绑定记录</text>
-      <text class="empty-sub">领取手环后将在此展示排队号码与等候信息</text>
-    </view>
+    <scroll-view
+      class="list"
+      scroll-y
+      enhanced
+      show-scrollbar="{{false}}"
+      refresher-enabled="{{true}}"
+      refresher-threshold="72"
+      refresher-default-style="black"
+      refresher-background="#e8edf5"
+      refresher-triggered="{{refreshing}}"
+      bindrefresherrefresh="onRefresherRefresh"
+    >
+      <view class="empty-wrap">
+        <text class="empty-title">暂无绑定记录</text>
+        <text class="empty-sub">领取手环后将在此展示排队号码与等候信息</text>
+      </view>
+    </scroll-view>
   </block>
 
   <scroll-view
@@ -14,6 +27,12 @@
     scroll-y
     enhanced
     show-scrollbar="{{false}}"
+    refresher-enabled="{{true}}"
+    refresher-threshold="72"
+    refresher-default-style="black"
+    refresher-background="#e8edf5"
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onRefresherRefresh"
   >
     <view
       wx:for="{{list}}"
@@ -48,19 +67,46 @@
       </view>
 
       <view class="queue-status-wrap">
-        <view wx:if="{{item.queueStateKind === 'normal'}}" class="wait-panel">
+        <view wx:if="{{item.queueStateKind === 'paused'}}" class="queue-status state-paused">
+          <text class="queue-status-txt">暂停排队</text>
+        </view>
+
+        <view wx:elif="{{item.queueStateKind === 'longWait'}}" class="wait-panel">
           <view class="wait-head">
             <text class="wait-title">预计等待时间</text>
           </view>
           <view class="wait-value-shell">
-            <view wx:if="{{item.etaMinutes != null}}" class="wait-row">
-              <text class="wait-pre">约</text>
-              <text class="wait-mid">{{item.etaMinutes}}</text>
-              <text class="wait-suf">分钟</text>
-            </view>
-            <text wx:else class="wait-single">{{item.etaText}}</text>
+            <text class="wait-long-wait">1小时以上</text>
           </view>
         </view>
+
+        <view
+          wx:elif="{{item.queueStateKind === 'normal' && item.etaRangeMin != null && item.etaRangeMax != null}}"
+          class="wait-panel"
+        >
+          <view class="wait-head">
+            <text class="wait-title">预计等待时间</text>
+          </view>
+          <view class="wait-value-shell">
+            <view class="wait-row">
+              <text class="wait-pre">约</text>
+              <text class="wait-mid">{{item.etaRangeMin}}</text>
+              <text class="wait-pre">~</text>
+              <text class="wait-mid">{{item.etaRangeMax}}</text>
+              <text class="wait-suf"> 分钟</text>
+            </view>
+          </view>
+        </view>
+
+        <view wx:elif="{{item.queueStateKind === 'normal'}}" class="wait-panel">
+          <view class="wait-head">
+            <text class="wait-title">预计等待时间</text>
+          </view>
+          <view class="wait-value-shell">
+            <text class="wait-single">{{item.etaSingleText}}</text>
+          </view>
+        </view>
+
         <view wx:else class="queue-status state-{{item.queueStateKind}}">
           <text class="queue-status-txt">{{item.queueStateTitle}}</text>
         </view>
@@ -70,6 +116,33 @@
         <text class="foot-note-txt">请留意叫号通知，避免错过您的号码</text>
       </view>
     </view>
+
+    <view wx:if="{{calledTodayList.length}}" class="section-called-head">
+      <text class="section-called-title">今日已叫号</text>
+    </view>
+    <view
+      wx:for="{{calledTodayList}}"
+      wx:key="rowKey"
+      class="card card-called-today"
+    >
+      <view class="card-top">
+        <text class="act-name">{{item.activityName || '未命名活动'}}</text>
+        <text class="claim-time">领取时间 {{item.userScanBoundText}}</text>
+      </view>
+      <view class="number-block">
+        <text class="number-label">我的号码</text>
+        <text class="queue-number">{{item.queueNumber}}</text>
+      </view>
+      <view class="queue-status-wrap">
+        <view class="queue-status state-called-today">
+          <text class="queue-status-txt">{{item.statusText}}</text>
+        </view>
+      </view>
+      <view class="foot-note">
+        <text class="foot-note-txt">叫号时间 {{item.calledAtText}}</text>
+      </view>
+    </view>
+
     <view class="list-tail" />
   </scroll-view>
 </view>

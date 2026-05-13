@@ -31,7 +31,18 @@
     .btn-default:hover { background: #f5f5f5; }
     .btn-small { padding: 6px 12px; font-size: 12px; }
     .btn-block { width: 100%; }
-    .login-tip { text-align: center; color: #999; font-size: 12px; margin-top: 16px; }
+    .login-tip { text-align: center; color: #999; font-size: 12px; margin-top: 16px; line-height: 1.6; }
+    .login-password-wrap { position: relative; }
+    .login-password-wrap .form-control { padding-right: 42px; }
+    .login-password-toggle {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 34px; height: 34px; border: none; border-radius: 4px;
+      background: transparent; color: #8c8c8c; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; line-height: 0; transition: color 0.2s, background 0.2s;
+    }
+    .login-password-toggle:hover { color: #1890ff; background: rgba(24,144,255,0.08); }
+    .login-password-toggle svg { display: block; }
     
     /* Layout */
     .layout { min-height: 100vh; display: flex; flex-direction: column; }
@@ -105,9 +116,20 @@
     .pagination button:hover { background: #f5f5f5; }
     .pagination button.active { background: #1890ff; color: #fff; border-color: #1890ff; }
     .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pagination-bar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #eee; }
+    .pagination-jump { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #666; }
+    .pagination-jump input[type="number"] { width: 68px; padding: 4px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 13px; text-align: center; line-height: 1.4; box-sizing: border-box; }
+    .sortable-th { cursor: pointer; user-select: none; white-space: nowrap; }
+    .sortable-th:hover { color: #1890ff; }
+    .sort-hint { font-size: 11px; margin-left: 4px; opacity: 0.85; }
     
     /* Textarea */
     textarea.form-control { resize: vertical; min-height: 80px; }
+    
+    /* 扫码枪模拟键盘：尽量弱化系统中文输入法（仅提示，各浏览器支持不一） */
+    .input-scan-no-ime {
+      ime-mode: disabled; /* 旧版 IE/Edge；现代 Chrome 多忽略，无害 */
+    }
     
     /* Responsive：手机端保留菜单 — 顶部横向滚动，避免原先 display:none 导致无入口 */
     @media (max-width: 768px) {
@@ -171,6 +193,42 @@
       setTimeout(() => msg.remove(), 3000);
     }
 
+    /** 先读文本再 JSON.parse，避免服务端返回 HTML/空 body 时 response.json() 抛错被误判为「网络错误」 */
+    async function parseApiJsonResponse(response) {
+      const text = await response.text();
+      if (!text || !String(text).trim()) return {};
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        const snippet = String(text).replace(/\s+/g, ' ').slice(0, 200);
+        const err = new Error(
+          '服务器返回了非 JSON（HTTP ' + response.status + '）。' +
+            (snippet ? ' 片段：' + snippet : '') +
+            ' 若刚更新过后端代码，请重启 Node 服务后再试。'
+        );
+        err._parseFail = true;
+        throw err;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /** 总页数至少为 1；兼容接口 totalPages=0（如 total=0 时 Math.ceil 为 0） */
+    function safeTotalPages(total, pageSize, serverTotalPages) {
+      const fromServer = Number(serverTotalPages);
+      if (Number.isFinite(fromServer) && fromServer >= 1) return fromServer;
+      const t = Number(total) || 0;
+      const ps = Math.max(1, Number(pageSize) || 10);
+      if (t <= 0) return 1;
+      return Math.max(1, Math.ceil(t / ps));
+    }
+
     const BRACELET_ID_MAX_LEN = 128;
     function braceletIdCharError(s) {
       if (typeof s !== 'string' || !s.length) return '手环编号不能为空';
@@ -196,6 +254,106 @@
       if (status === 'claimed') return { cls: 'tag-orange', text: '用户已扫码绑定' };
       if (status === 'called') return { cls: 'tag-green', text: '已叫号入场' };
       return { cls: 'tag-blue', text: status || '-' };
+    }
+
+    /** 与后端 compareWaitingQueueOrder 一致：纯数字按数值升序，否则 locale 数字感知排序，再按登记时间 */
+    function compareQueueNumberAscAdmin(a, b) {
+      const ra = String(a.号码 != null ? a.号码 : a.number ?? '').trim();
+      const rb = String(b.号码 != null ? b.号码 : b.number ?? '').trim();
+      const na = Number(ra);
+      const nb = Number(rb);
+      const aPure = ra !== '' && Number.isFinite(na) && String(na) === ra;
+      const bPure = rb !== '' && Number.isFinite(nb) && String(nb) === rb;
+      if (aPure && bPure && na !== nb) return na - nb;
+      if (ra !== rb) return ra.localeCompare(rb, undefined, { numeric: true });
+      const ta = new Date(a.createdAt || 0).getTime();
+      const tb = new Date(b.createdAt || 0).getTime();
+      return ta - tb;
+    }
+
+    function adminRowQueueNumberRaw(q) {
+      if (!q) return '';
+      if (q.queueNumber != null && q.queueNumber !== '') return q.queueNumber;
+      if (q.号码 != null && q.号码 !== '') return q.号码;
+      if (q.number != null && q.number !== '') return q.number;
+      return '';
+    }
+    function compareWaitingQueueOrderClient(a, b) {
+      const ra = String(adminRowQueueNumberRaw(a)).trim();
+      const rb = String(adminRowQueueNumberRaw(b)).trim();
+      const na = Number(ra);
+      const nb = Number(rb);
+      const aPure = ra !== '' && Number.isFinite(na) && String(na) === ra;
+      const bPure = rb !== '' && Number.isFinite(nb) && String(nb) === rb;
+      if (aPure && bPure && na !== nb) return na - nb;
+      if (ra !== rb) return ra.localeCompare(rb, undefined, { numeric: true });
+      return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+    }
+    /** 与后端 compareQueueRowsForAdminList 对齐（叫号管理列表在浏览器端再排序） */
+    function compareAdminQueueRowsClient(a, b, sortBy, sortOrder) {
+      const dir = sortOrder === 'desc' ? -1 : 1;
+      const idStr = (q) => String(q && q._id != null ? q._id : '');
+      let cmp = 0;
+      switch (sortBy) {
+        case 'activityThenNumber':
+        case 'activityId': {
+          cmp = String(a.activityId || '').localeCompare(String(b.activityId || ''));
+          if (cmp === 0) cmp = compareWaitingQueueOrderClient(a, b);
+          break;
+        }
+        case 'number':
+        case '号码': {
+          const ra = String(adminRowQueueNumberRaw(a)).trim();
+          const rb = String(adminRowQueueNumberRaw(b)).trim();
+          const na = Number(ra);
+          const nb = Number(rb);
+          const aPure = ra !== '' && Number.isFinite(na) && String(na) === ra;
+          const bPure = rb !== '' && Number.isFinite(nb) && String(nb) === rb;
+          if (aPure && bPure && na !== nb) cmp = na - nb;
+          else if (ra !== rb) cmp = ra.localeCompare(rb, undefined, { numeric: true });
+          else cmp = String(a.activityId || '').localeCompare(String(b.activityId || ''));
+          if (cmp === 0) cmp = idStr(a).localeCompare(idStr(b));
+          break;
+        }
+        case 'calledAt':
+        case 'createdAt': {
+          cmp = new Date(a[sortBy] || 0).getTime() - new Date(b[sortBy] || 0).getTime();
+          if (cmp === 0) cmp = idStr(a).localeCompare(idStr(b));
+          break;
+        }
+        case 'bracelet': {
+          const ba = String(a.手环编号 || a.braceletId || '').trim();
+          const bb = String(b.手环编号 || b.braceletId || '').trim();
+          cmp = ba.localeCompare(bb, undefined, { numeric: true, sensitivity: 'base' });
+          if (cmp === 0) cmp = compareWaitingQueueOrderClient(a, b);
+          break;
+        }
+        default: {
+          cmp = String(a.activityId || '').localeCompare(String(b.activityId || ''));
+          if (cmp === 0) cmp = compareWaitingQueueOrderClient(a, b);
+        }
+      }
+      if (cmp === 0) cmp = idStr(a).localeCompare(idStr(b));
+      return cmp * dir;
+    }
+
+    function sortArrowHtml(activeBy, activeOrder, colKey) {
+      if (activeBy !== colKey) {
+        return '<span class="sort-hint" style="opacity:.35;">↕</span>';
+      }
+      return activeOrder === 'desc'
+        ? '<span class="sort-hint">▼</span>'
+        : '<span class="sort-hint">▲</span>';
+    }
+
+    function refreshAdminTableSortArrows(tableId, sortBy, sortOrder) {
+      const tbl = document.getElementById(tableId);
+      if (!tbl) return;
+      tbl.querySelectorAll('th.sortable-th').forEach((th) => {
+        const col = th.getAttribute('data-sort');
+        const s = th.querySelector('.admin-th-sort');
+        if (s && col) s.innerHTML = sortArrowHtml(sortBy, sortOrder, col);
+      });
     }
     
     // Modal Component
@@ -232,14 +390,16 @@
       });
       
       document.getElementById('confirm-ok-btn').addEventListener('click', () => {
-        modal.remove();
-        if (options.onOk) {
-          options.onOk();
+        try {
+          if (options.onOk) {
+            options.onOk();
+          }
+        } finally {
+          modal.remove();
         }
       });
     }
     
-    // Login Page
     function renderLoginPage(onLogin) {
       const html = `
         <div class="login-container">
@@ -247,32 +407,52 @@
             <div class="login-title">漫展排队系统</div>
             <div class="form-group">
               <label>用户名</label>
-              <input type="text" id="login-username" class="form-control" placeholder="请输入用户名" value="admin" />
+              <input type="text" id="login-username" class="form-control" placeholder="请输入用户名" autocomplete="username" value="admin" />
             </div>
             <div class="form-group">
               <label>密码</label>
-              <input type="password" id="login-password" class="form-control" placeholder="请输入密码" value="admin123" />
+              <div class="login-password-wrap">
+                <input type="password" id="login-password" class="form-control" placeholder="请输入密码" autocomplete="current-password" value="admin123" />
+                <button type="button" id="login-password-toggle" class="login-password-toggle" title="显示密码" aria-label="显示或隐藏密码" aria-pressed="false">
+                  <svg class="login-password-icon-show" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="login-password-icon-hide" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
             </div>
             <button id="login-btn" class="btn btn-primary btn-block">登录</button>
-            <div class="login-tip">默认账号：admin / admin123</div>
+            <div class="login-tip">【测试版本】由翻翻动漫信息部研发</div>
           </div>
         </div>
       `;
       document.getElementById('app').innerHTML = html;
-      
-      document.getElementById('login-btn').addEventListener('click', async () => {
+
+      const loginBtn = document.getElementById('login-btn');
+
+      const pwdInput = document.getElementById('login-password');
+      const pwdToggle = document.getElementById('login-password-toggle');
+      const pwdIconShow = pwdToggle.querySelector('.login-password-icon-show');
+      const pwdIconHide = pwdToggle.querySelector('.login-password-icon-hide');
+      pwdToggle.addEventListener('click', () => {
+        const visible = pwdInput.type === 'text';
+        pwdInput.type = visible ? 'password' : 'text';
+        pwdToggle.setAttribute('aria-pressed', visible ? 'false' : 'true');
+        pwdToggle.title = visible ? '显示密码' : '隐藏密码';
+        pwdIconShow.style.display = visible ? 'block' : 'none';
+        pwdIconHide.style.display = visible ? 'none' : 'block';
+      });
+
+      loginBtn.addEventListener('click', async () => {
         const username = document.getElementById('login-username').value;
         const password = document.getElementById('login-password').value;
-        
+
         if (!username || !password) {
           showMessage('warning', '请输入用户名和密码');
           return;
         }
-        
-        const btn = document.getElementById('login-btn');
-        btn.disabled = true;
-        btn.textContent = '登录中...';
-        
+
+        loginBtn.disabled = true;
+        loginBtn.textContent = '登录中...';
+
         try {
           const response = await fetch(`${API_URL}/auth/login`, {
             method: 'POST',
@@ -280,7 +460,7 @@
             body: JSON.stringify({ username, password })
           });
           const data = await response.json();
-          
+
           if (response.ok) {
             localStorage.setItem('token', data.token);
             showMessage('success', '登录成功');
@@ -291,13 +471,13 @@
         } catch (error) {
           showMessage('error', '网络错误');
         } finally {
-          btn.disabled = false;
-          btn.textContent = '登录';
+          loginBtn.disabled = false;
+          loginBtn.textContent = '登录';
         }
       });
-      
+
       document.getElementById('login-password').addEventListener('keyup', (e) => {
-        if (e.key === 'Enter') document.getElementById('login-btn').click();
+        if (e.key === 'Enter') loginBtn.click();
       });
     }
     
@@ -343,17 +523,17 @@
               <button id="add-activity-btn" class="btn btn-primary">+ 添加活动</button>
             </div>
           </div>
-          <table class="table">
+          <table class="table" id="activities-admin-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>名称</th>
+                <th class="sortable-th" data-sort="_id"><span class="act-th-t">ID</span><span class="act-sort"></span></th>
+                <th class="sortable-th" data-sort="name"><span class="act-th-t">名称</span><span class="act-sort"></span></th>
                 <th>描述</th>
-                <th>状态</th>
-                <th>创建人</th>
-                <th>创建时间</th>
-                <th>操作人</th>
-                <th>操作时间</th>
+                <th class="sortable-th" data-sort="status"><span class="act-th-t">状态</span><span class="act-sort"></span></th>
+                <th class="sortable-th" data-sort="createdBy"><span class="act-th-t">创建人</span><span class="act-sort"></span></th>
+                <th class="sortable-th" data-sort="createdAt"><span class="act-th-t">创建时间</span><span class="act-sort"></span></th>
+                <th class="sortable-th" data-sort="updatedBy"><span class="act-th-t">操作人</span><span class="act-sort"></span></th>
+                <th class="sortable-th" data-sort="updatedAt"><span class="act-th-t">操作时间</span><span class="act-sort"></span></th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -365,6 +545,18 @@
       document.getElementById('main-content').innerHTML = html;
       
       let pagination = { current: 1, pageSize: 10, total: 0 };
+      let activitySortBy = 'createdAt';
+      let activitySortOrder = 'desc';
+
+      function refreshActivitySortTh() {
+        const tbl = document.getElementById('activities-admin-table');
+        if (!tbl) return;
+        tbl.querySelectorAll('th.sortable-th').forEach((th) => {
+          const col = th.getAttribute('data-sort');
+          const s = th.querySelector('.act-sort');
+          if (s && col) s.innerHTML = sortArrowHtml(activitySortBy, activitySortOrder, col);
+        });
+      }
       
       async function loadActivities() {
         const filters = {
@@ -373,7 +565,9 @@
           status: document.getElementById('filter-status').value,
           createdBy: document.getElementById('filter-createdBy').value,
           page: pagination.current,
-          pageSize: pagination.pageSize
+          pageSize: pagination.pageSize,
+          sortBy: activitySortBy,
+          sortOrder: activitySortOrder
         };
         
         const params = new URLSearchParams(filters);
@@ -387,6 +581,7 @@
             renderActivities(data.data || []);
             pagination.total = data.total || 0;
             renderPagination();
+            refreshActivitySortTh();
           }
         } catch (error) {
           showMessage('error', '加载失败');
@@ -449,30 +644,65 @@
       
       function renderPagination() {
         const container = document.getElementById('pagination-container');
-        const totalPages = Math.ceil(pagination.total / pagination.pageSize);
-        
-        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>`;
-        for (let i = 1; i <= totalPages; i++) {
-          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" data-page="${i}">${i}</button>`;
-        }
-        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>`;
-        
+        const totalPages = safeTotalPages(pagination.total, pagination.pageSize);
+        const cur = Math.min(Math.max(1, pagination.current), totalPages);
+        if (cur !== pagination.current) pagination.current = cur;
+
+        const html =
+          '<div class="pagination-bar" style="border-top:none;margin-top:0;padding-top:0;">' +
+          '<button type="button" class="btn btn-default btn-small"' +
+          (pagination.current <= 1 ? ' disabled' : '') +
+          ' data-action="prev">上一页</button>' +
+          '<span style="min-width:130px;text-align:center;color:#666;font-size:14px;">第 ' +
+          pagination.current +
+          ' 页 / 共 ' +
+          totalPages +
+          ' 页</span>' +
+          '<span class="pagination-jump">' +
+          '<span>跳转</span>' +
+          '<input type="number" id="activity-page-jump" min="1" step="1" placeholder="页码" value="' +
+          pagination.current +
+          '" />' +
+          '<button type="button" class="btn btn-default btn-small" id="activity-page-jump-btn">确定</button></span>' +
+          '<button type="button" class="btn btn-default btn-small"' +
+          (pagination.current >= totalPages ? ' disabled' : '') +
+          ' data-action="next">下一页</button>' +
+          '</div>';
+
         container.innerHTML = html;
-        
-        container.querySelectorAll('button').forEach(btn => {
-          btn.addEventListener('click', () => {
-            if (btn.dataset.action === 'prev' && pagination.current > 1) {
-              pagination.current--;
-              loadActivities();
-            } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
-              pagination.current++;
-              loadActivities();
-            } else if (btn.dataset.page) {
-              pagination.current = parseInt(btn.dataset.page);
-              loadActivities();
-            }
-          });
+
+        container.querySelector('[data-action="prev"]').addEventListener('click', () => {
+          if (pagination.current > 1) {
+            pagination.current--;
+            loadActivities();
+          }
         });
+        container.querySelector('[data-action="next"]').addEventListener('click', () => {
+          if (pagination.current < totalPages) {
+            pagination.current++;
+            loadActivities();
+          }
+        });
+        const jumpBtn = document.getElementById('activity-page-jump-btn');
+        const jumpInp = document.getElementById('activity-page-jump');
+        if (jumpBtn && jumpInp) {
+          const go = () => {
+            const p = parseInt(String(jumpInp.value || '').trim(), 10);
+            if (!Number.isFinite(p) || p < 1) {
+              showMessage('warning', '请输入有效页码');
+              return;
+            }
+            const max = totalPages;
+            const target = Math.min(max, p);
+            if (target !== p) showMessage('info', '页码已限制在 1～' + max);
+            pagination.current = target;
+            loadActivities();
+          };
+          jumpBtn.addEventListener('click', go);
+          jumpInp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') go();
+          });
+        }
       }
       
       async function updateActivityStatus(id, status) {
@@ -545,7 +775,7 @@
             return;
           }
           
-          const totalPages = Math.ceil(pagination.total / pagination.pageSize);
+          const totalPages = safeTotalPages(pagination.total, pagination.pageSize);
           
           const tableHtml = `
             <table class="table" style="margin-bottom: 16px; width: 100%;">
@@ -575,12 +805,15 @@
                 `).join('')}
               </tbody>
             </table>
-            <div class="pagination" id="deleted-pagination">
-              <button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>
-              ${Array.from({ length: totalPages }, (_, i) => `
-                <button class="btn btn-default btn-small ${pagination.current === i + 1 ? 'active' : ''}" data-page="${i + 1}">${i + 1}</button>
-              `).join('')}
-              <button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>
+            <div class="pagination-bar" id="deleted-pagination" style="border-top:none;padding-top:8px;">
+              <button type="button" class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>
+              <span style="min-width:120px;text-align:center;color:#666;font-size:14px;">第 ${pagination.current} 页 / 共 ${totalPages} 页</span>
+              <span class="pagination-jump">
+                <span>跳转</span>
+                <input type="number" id="deleted-page-jump" min="1" step="1" placeholder="页码" value="${pagination.current}" />
+                <button type="button" class="btn btn-default btn-small" id="deleted-page-jump-btn">确定</button>
+              </span>
+              <button type="button" class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>
             </div>
           `;
           
@@ -610,17 +843,33 @@
           });
           
           // 绑定分页按钮事件
-          modal.querySelectorAll('#deleted-pagination button').forEach(btn => {
+          modal.querySelectorAll('#deleted-pagination button[data-action]').forEach(btn => {
             btn.addEventListener('click', () => {
               if (btn.dataset.action === 'prev' && pagination.current > 1) {
                 fetchDeletedActivities(pagination.current - 1);
               } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
                 fetchDeletedActivities(pagination.current + 1);
-              } else if (btn.dataset.page) {
-                fetchDeletedActivities(parseInt(btn.dataset.page));
               }
             });
           });
+          const delJumpBtn = modal.querySelector('#deleted-page-jump-btn');
+          const delJumpInp = modal.querySelector('#deleted-page-jump');
+          if (delJumpBtn && delJumpInp) {
+            const goDel = () => {
+              const p = parseInt(String(delJumpInp.value || '').trim(), 10);
+              if (!Number.isFinite(p) || p < 1) {
+                showMessage('warning', '请输入有效页码');
+                return;
+              }
+              const target = Math.min(totalPages, p);
+              if (target !== p) showMessage('info', '页码已限制在 1～' + totalPages);
+              fetchDeletedActivities(target);
+            };
+            delJumpBtn.addEventListener('click', goDel);
+            delJumpInp.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') goDel();
+            });
+          }
         }
         
         // 创建弹窗
@@ -684,6 +933,21 @@
       }
       
       document.getElementById('filter-btn').addEventListener('click', () => {
+        pagination.current = 1;
+        loadActivities();
+      });
+      
+      document.getElementById('activities-admin-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (activitySortBy === col) {
+          activitySortOrder = activitySortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          activitySortBy = col;
+          activitySortOrder = col === 'createdAt' || col === 'updatedAt' ? 'desc' : 'asc';
+        }
         pagination.current = 1;
         loadActivities();
       });
@@ -795,7 +1059,7 @@
       const html = `
         <div class="card">
           <div class="card-title" style="margin-bottom: 16px;">登记手环</div>
-          <p style="color:#666;font-size:13px;margin-bottom:14px;line-height:1.5;">与小程序逻辑对齐：<strong>排队码</strong>可选「自定义」或「自动递增」（按本浏览器记录的上一次排队码 +1）。<strong>手环编号</strong>支持中英文大小写、数字、标点与常见符号（禁止空白、表情等），扫码格式为 <strong>MG# 开头共 27 位</strong>；录满合法后<strong>自动提交登记</strong>，成功后清空手环框并<strong>保持焦点</strong>便于连续扫码。</p>
+          <p style="color:#666;font-size:13px;margin-bottom:14px;line-height:1.5;">与小程序逻辑对齐：<strong>排队码</strong>可选「自定义」或「自动递增」（按本浏览器记录的上一次排队码 +1）。<strong>手环编号</strong>支持中英文大小写、数字、标点与常见符号（禁止空白、表情等），扫码格式为 <strong>MG# 开头共 27 位</strong>；录满合法后<strong>自动提交登记</strong>，成功后清空手环框并<strong>保持焦点</strong>便于连续扫码。已在上方<strong>选择活动</strong>时，下方登记列表<strong>仅显示该活动</strong>；选「请选择活动」则显示全部。</p>
           <div class="form-inline" style="flex-wrap:wrap;align-items:flex-start;gap:12px;">
             <div class="form-group">
               <label>选择活动</label>
@@ -820,7 +1084,8 @@
             </div>
             <div class="form-group" style="flex:1;min-width:280px;">
               <label>手环编号</label>
-              <input type="text" id="bind-bracelet" class="form-control" placeholder="中英文大小写、数字、标点与符号；MG# 开头共27位，录满自动登记" style="width:100%;max-width:520px;" maxlength="128" autocomplete="off" />
+              <input type="text" id="bind-bracelet" class="form-control input-scan-no-ime" placeholder="MG# 开头共27位；扫码枪建议英文输入法" style="width:100%;max-width:520px;" maxlength="128" lang="en" inputmode="latin" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" title="扫码枪在中文输入法下易误录汉字；本框会自动去掉非英文字符，仍建议切换英文输入法。" />
+              <div style="color:#888;font-size:12px;margin-top:6px;max-width:520px;">条码为 ASCII（MG#…）。中文输入法下扫码易把按键当拼音；已自动过滤非英文字符，并尽量禁用输入法联想。</div>
             </div>
             <div class="form-group" style="align-self:flex-end;padding-top:22px;">
               <button type="button" id="bind-btn" class="btn btn-primary">登记</button>
@@ -830,24 +1095,29 @@
         
         <div class="card">
           <div class="card-title">登记列表</div>
-          <table class="table">
+          <table class="table" id="bind-queues-table">
             <thead>
               <tr>
-                <th>活动ID</th>
+                <th class="sortable-th" data-sort="activityThenNumber" title="先按活动，再按排号"><span>活动ID</span><span class="admin-th-sort"></span></th>
                 <th>活动名称</th>
                 <th>手环编号</th>
-                <th>排号</th>
+                <th class="sortable-th" data-sort="number" title="按排号（数值/字符串规则与叫号一致）"><span>排号</span><span class="admin-th-sort"></span></th>
                 <th>状态</th>
                 <th>登记人</th>
-                <th>手环登记时间</th>
+                <th class="sortable-th" data-sort="createdAt" title="按手环登记时间"><span>手环登记时间</span><span class="admin-th-sort"></span></th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="queues-table-body"></tbody>
           </table>
-          <div id="pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+          <div id="pagination" class="pagination-bar">
             <button type="button" id="prev-page" class="btn btn-default btn-small" disabled>上一页</button>
-            <span id="page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span id="page-info" style="min-width: 140px; text-align: center; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span class="pagination-jump">
+              <span>跳转</span>
+              <input type="number" id="bind-page-jump" min="1" step="1" placeholder="页码" />
+              <button type="button" id="bind-page-jump-btn" class="btn btn-default btn-small">确定</button>
+            </span>
             <button type="button" id="next-page" class="btn btn-default btn-small" disabled>下一页</button>
           </div>
         </div>
@@ -914,18 +1184,43 @@
 
       let currentPage = 1;
       let totalPages = 1;
+      let bindSortBy = 'activityThenNumber';
+      let bindSortOrder = 'asc';
+
+      document.getElementById('bind-queues-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (bindSortBy === col) {
+          bindSortOrder = bindSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          bindSortBy = col;
+          bindSortOrder = col === 'createdAt' ? 'desc' : 'asc';
+        }
+        loadQueues(1);
+      });
       
       async function loadQueues(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/queues?page=${page}&pageSize=20&sortBy=createdAt&sortOrder=desc`, {
+          const qs = new URLSearchParams();
+          qs.set('page', String(page));
+          qs.set('pageSize', '20');
+          qs.set('sortBy', bindSortBy);
+          qs.set('sortOrder', bindSortOrder);
+          const bindActivityId = (document.getElementById('bind-activity').value || '').trim();
+          if (bindActivityId) qs.set('activityId', bindActivityId);
+          const response = await fetch(`${API_URL}/queues?${qs.toString()}`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
           const data = await response.json();
           const queues = data.data || data;
-          currentPage = data.page || 1;
-          totalPages = data.totalPages || 1;
+          const pageSize = Number(data.pageSize) || 20;
+          currentPage = Number(data.page) || page || 1;
+          totalPages = safeTotalPages(data.total, pageSize, data.totalPages);
           renderQueues(queues);
           updatePagination();
+          refreshAdminTableSortArrows('bind-queues-table', bindSortBy, bindSortOrder);
         } catch (error) {
           showMessage('error', '加载排队记录失败');
         }
@@ -940,6 +1235,10 @@
         tbody.innerHTML = queues.map(queue => {
           const st = queueBindStatusDisplay(queue.status);
           const qid = queue._id || queue.id || '';
+          const batchLocked = queue.batchBindLocked === true;
+          const unbindCell = batchLocked
+            ? '<button type="button" class="btn btn-default btn-small" onclick="showBatchBindUnbindBlocked()">解绑</button>'
+            : `<button class="btn btn-danger btn-small" onclick="unbindQueue('${qid}')">解绑</button>`;
           return `
             <tr>
               <td>${queue.activityId}</td>
@@ -949,7 +1248,7 @@
               <td><span class="tag ${st.cls}">${st.text}</span></td>
               <td>${queue.boundBy || '-'}</td>
               <td>${queue.createdAt ? new Date(queue.createdAt).toLocaleString() : '-'}</td>
-              <td><button class="btn btn-danger btn-small" onclick="unbindQueue('${qid}')">解绑</button></td>
+              <td>${unbindCell}</td>
             </tr>
           `;
         }).join('');
@@ -965,6 +1264,8 @@
         prevBtn.disabled = currentPage <= 1;
         nextBtn.disabled = currentPage >= totalPages;
         pageInfo.textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        const jumpInp = document.getElementById('bind-page-jump');
+        if (jumpInp) jumpInp.value = String(currentPage);
       }
 
       function bindPaginationEvents() {
@@ -978,6 +1279,25 @@
             loadQueues(currentPage + 1);
           }
         });
+        const jumpBtn = document.getElementById('bind-page-jump-btn');
+        const jumpInp = document.getElementById('bind-page-jump');
+        if (jumpBtn && jumpInp) {
+          const goBindPage = () => {
+            const p = parseInt(String(jumpInp.value || '').trim(), 10);
+            if (!Number.isFinite(p) || p < 1) {
+              showMessage('warning', '请输入有效页码');
+              return;
+            }
+            const max = totalPages;
+            const target = Math.min(max, p);
+            if (target !== p) showMessage('info', `页码已限制在 1～${max}`);
+            loadQueues(target);
+          };
+          jumpBtn.addEventListener('click', goBindPage);
+          jumpInp.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') goBindPage();
+          });
+        }
       }
 
       let bindInFlight = false;
@@ -1039,6 +1359,13 @@
         }
       }
 
+      window.showBatchBindUnbindBlocked = function () {
+        showMessage(
+          'warning',
+          '该记录由「制作并登记手环」批量生成并已自动绑定排号，系统禁止解绑；每个活动仅允许使用一次该功能。'
+        );
+      };
+
       function unbindQueue(id) {
         confirm({
           title: '确认解绑',
@@ -1049,25 +1376,37 @@
                 method: 'DELETE',
                 headers: { Authorization: localStorage.getItem('token') }
               });
+              const data = await parseApiJsonResponse(response);
               if (response.ok) {
                 showMessage('success', '解绑成功');
                 loadQueues();
               } else {
-                showMessage('error', '解绑失败');
+                showMessage('error', data.error || '解绑失败');
               }
             } catch (error) {
-              showMessage('error', '网络错误');
+              showMessage('error', error.message || '网络错误');
             }
           }
         });
       }
 
-      document.getElementById('bind-activity').addEventListener('change', refreshQueueCodeUI);
+      document.getElementById('bind-activity').addEventListener('change', () => {
+        refreshQueueCodeUI();
+        loadQueues(1);
+      });
       document.getElementById('bind-queue-custom').addEventListener('change', refreshQueueCodeUI);
       document.getElementById('bind-queue-auto').addEventListener('change', refreshQueueCodeUI);
 
       const braceletInput = document.getElementById('bind-bracelet');
+      /** 扫码枪走键盘事件；中文 IME 会把字母当拼音。MG# 条码为 ASCII，去掉非 ASCII 可打印字符可纠错。 */
+      function sanitizeBraceletScanField(el) {
+        const raw = el.value;
+        const cleaned = raw.replace(/[^\x20-\x7E]/g, '');
+        if (cleaned !== raw) el.value = cleaned;
+      }
+      braceletInput.addEventListener('compositionend', () => sanitizeBraceletScanField(braceletInput));
       braceletInput.addEventListener('input', () => {
+        sanitizeBraceletScanField(braceletInput);
         clearTimeout(scanDebounce);
         scanDebounce = setTimeout(() => {
           const v = braceletInput.value.trim();
@@ -1087,6 +1426,7 @@
       window.unbindQueue = unbindQueue;
 
       loadActivities();
+      bindPaginationEvents();
       loadQueues();
       refreshQueueCodeUI();
       setTimeout(() => braceletInput.focus(), 0);
@@ -1135,13 +1475,23 @@
         
         <div class="card">
           <div class="card-title" style="margin-bottom: 16px;">叫号操作</div>
-          <div class="form-inline">
+          <div class="form-inline" style="flex-wrap: wrap; align-items: flex-end; gap: 12px;">
             <div class="form-group">
               <label>手动叫号</label>
               <input type="number" id="call-number" class="form-control" placeholder="输入号码" style="width: 150px;" />
             </div>
-            <button id="call-manual-btn" class="btn btn-default">叫号</button>
+            <div class="form-group">
+              <button id="call-manual-btn" class="btn btn-default">叫号</button>
+            </div>
+            <div class="form-group">
+              <label>批量叫号</label>
+              <input type="number" id="batch-call-count" class="form-control" placeholder="数量" min="1" max="100" style="width: 110px;" title="按排号顺序，从当前活动全部「等待叫号」中取最小的 N 个依次叫号（不受下方列表搜索筛选）" />
+            </div>
+            <div class="form-group">
+              <button id="batch-call-btn" class="btn btn-primary" type="button">批量叫号</button>
+            </div>
           </div>
+          <p style="color:#888;font-size:12px;margin:10px 0 0;line-height:1.5;">批量叫号：输入 N 后点击按钮，将一次性确认，再按排号升序依次叫号前 N 条（待发放 / 用户已绑定、未入场）。单次最多 100 条。</p>
         </div>
         
         <div class="card">
@@ -1166,22 +1516,27 @@
               <button id="search-btn" style="padding: 0 24px; font-size: 14px; height: 36px; border: none; border-radius: 4px; background: #1890ff; color: white; cursor: pointer;">搜索</button>
             </div>
           </div>
-          <table class="table">
+          <table class="table" id="queue-mgmt-table">
             <thead>
               <tr>
-                <th>手环编号</th>
-                <th>排号</th>
+                <th class="sortable-th" data-sort="bracelet"><span class="qm-th-t">手环编号</span><span class="qm-sort"></span></th>
+                <th class="sortable-th" data-sort="number"><span class="qm-th-t">排号</span><span class="qm-sort"></span></th>
                 <th>状态</th>
-                <th>手环登记时间</th>
-                <th>叫号时间</th>
+                <th class="sortable-th" data-sort="createdAt"><span class="qm-th-t">手环登记时间</span><span class="qm-sort"></span></th>
+                <th class="sortable-th" data-sort="calledAt"><span class="qm-th-t">叫号时间</span><span class="qm-sort"></span></th>
                 <th id="operation-th">操作</th>
               </tr>
             </thead>
             <tbody id="waiting-queues-body"></tbody>
           </table>
-          <div id="queue-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+          <div id="queue-pagination" class="pagination-bar">
             <button id="queue-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
-            <span id="queue-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span id="queue-page-info" style="min-width: 140px; text-align: center; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span class="pagination-jump">
+              <span>跳转</span>
+              <input type="number" id="queue-page-jump" min="1" step="1" placeholder="页码" />
+              <button type="button" id="queue-page-jump-btn" class="btn btn-default btn-small">确定</button>
+            </span>
             <button id="queue-next-page" class="btn btn-default btn-small" disabled>下一页</button>
           </div>
         </div>
@@ -1229,7 +1584,7 @@
           const queueStatusElement = document.getElementById('queue-status');
           const pauseBtn = document.getElementById('queue-pause-btn');
           
-          if (status.avgIntervalSeconds > 0) {
+          if (status.avgIntervalSeconds != null && status.avgIntervalSeconds > 0) {
             const minutes = status.avgIntervalMinutes;
             const seconds = status.avgIntervalSeconds % 60;
             if (minutes > 0) {
@@ -1245,6 +1600,8 @@
           
           const callNumberInput = document.getElementById('call-number');
           const callManualBtn = document.getElementById('call-manual-btn');
+          const batchCallCountInput = document.getElementById('batch-call-count');
+          const batchCallBtn = document.getElementById('batch-call-btn');
           
           if (isPaused) {
             queueStatusElement.textContent = '排队暂停';
@@ -1255,6 +1612,14 @@
             callManualBtn.disabled = true;
             callNumberInput.style.opacity = '0.5';
             callManualBtn.style.opacity = '0.5';
+            if (batchCallCountInput) {
+              batchCallCountInput.disabled = true;
+              batchCallCountInput.style.opacity = '0.5';
+            }
+            if (batchCallBtn) {
+              batchCallBtn.disabled = true;
+              batchCallBtn.style.opacity = '0.5';
+            }
           } else if (status.isSlow) {
             queueStatusElement.textContent = '排队缓慢';
             queueStatusElement.style.color = '#f5222d';
@@ -1264,6 +1629,14 @@
             callManualBtn.disabled = false;
             callNumberInput.style.opacity = '1';
             callManualBtn.style.opacity = '1';
+            if (batchCallCountInput) {
+              batchCallCountInput.disabled = false;
+              batchCallCountInput.style.opacity = '1';
+            }
+            if (batchCallBtn) {
+              batchCallBtn.disabled = false;
+              batchCallBtn.style.opacity = '1';
+            }
           } else {
             queueStatusElement.textContent = '正常';
             queueStatusElement.style.color = '#52c41a';
@@ -1273,6 +1646,14 @@
             callManualBtn.disabled = false;
             callNumberInput.style.opacity = '1';
             callManualBtn.style.opacity = '1';
+            if (batchCallCountInput) {
+              batchCallCountInput.disabled = false;
+              batchCallCountInput.style.opacity = '1';
+            }
+            if (batchCallBtn) {
+              batchCallBtn.disabled = false;
+              batchCallBtn.style.opacity = '1';
+            }
           }
           
           document.getElementById('status-card').style.display = 'block';
@@ -1321,6 +1702,23 @@
       let currentPage = 1;
       let totalPages = 1;
       let currentTab = 'waiting';
+      /** 批量叫号：勾选「不再提醒」后，本页会话内跳过确认框；换活动、搜索筛选、切换等待/已叫号或离开本菜单后重置 */
+      let batchCallSkipConfirm = false;
+      function resetBatchCallConfirmSession() {
+        batchCallSkipConfirm = false;
+      }
+
+      let queueMgmtSortBy = 'number';
+      let queueMgmtSortOrder = 'asc';
+      function refreshQueueMgmtSortTh() {
+        const tbl = document.getElementById('queue-mgmt-table');
+        if (!tbl) return;
+        tbl.querySelectorAll('th.sortable-th').forEach((th) => {
+          const col = th.getAttribute('data-sort');
+          const span = th.querySelector('.qm-sort');
+          if (span && col) span.innerHTML = sortArrowHtml(queueMgmtSortBy, queueMgmtSortOrder, col);
+        });
+      }
       
       function getSearchParams() {
         const bracelet = document.getElementById('search-bracelet').value || '';
@@ -1334,6 +1732,8 @@
           document.getElementById('waiting-queues-body').innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">请选择活动</td></tr>';
           document.getElementById('queue-pagination').style.display = 'block';
           document.getElementById('queue-page-info').textContent = '第 1 页 / 共 1 页';
+          const qj0 = document.getElementById('queue-page-jump');
+          if (qj0) qj0.value = '1';
           document.getElementById('queue-prev-page').disabled = true;
           document.getElementById('queue-next-page').disabled = true;
           return;
@@ -1342,7 +1742,7 @@
         const { bracelet, number } = getSearchParams();
         
         try {
-          let url = `${API_URL}/queues?activityId=${activityId}&page=${page}&pageSize=10`;
+          let url = `${API_URL}/queues?activityId=${activityId}&page=1&pageSize=10000`;
           if (bracelet) url += `&bracelet=${encodeURIComponent(bracelet)}`;
           if (number) url += `&number=${encodeURIComponent(number)}`;
           
@@ -1354,26 +1754,19 @@
           
           if (currentTab === 'waiting') {
             queues = queues.filter(q => q.status === 'waiting' || q.status === 'claimed');
-            queues.sort((a, b) => {
-              const numA = parseInt(a.number) || 0;
-              const numB = parseInt(b.number) || 0;
-              return numA - numB;
-            });
           } else {
             queues = queues.filter(q => q.status === 'called');
-            queues.sort((a, b) => {
-              const timeA = new Date(a.calledAt).getTime() || 0;
-              const timeB = new Date(b.calledAt).getTime() || 0;
-              return timeB - timeA;
-            });
           }
           
-          const total = queues.length;
-          const paginatedQueues = queues.slice((page - 1) * 10, page * 10);
-          queues = paginatedQueues;
+          queues.sort((a, b) => compareAdminQueueRowsClient(a, b, queueMgmtSortBy, queueMgmtSortOrder));
           
-          currentPage = page;
-          totalPages = Math.ceil(total / 10);
+          const total = queues.length;
+          const pageSizeLocal = 10;
+          totalPages = Math.max(1, Math.ceil(total / pageSizeLocal));
+          const clampedPage = Math.min(Math.max(1, page), totalPages);
+          currentPage = clampedPage;
+          const paginatedQueues = queues.slice((clampedPage - 1) * pageSizeLocal, clampedPage * pageSizeLocal);
+          queues = paginatedQueues;
           
           const tbody = document.getElementById('waiting-queues-body');
           const operationTh = document.getElementById('operation-th');
@@ -1418,9 +1811,12 @@
           }
           
           document.getElementById('queue-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+          const qJump = document.getElementById('queue-page-jump');
+          if (qJump) qJump.value = String(currentPage);
           document.getElementById('queue-pagination').style.display = 'block';
           document.getElementById('queue-prev-page').disabled = currentPage <= 1;
           document.getElementById('queue-next-page').disabled = currentPage >= totalPages;
+          refreshQueueMgmtSortTh();
           
           document.querySelectorAll('.call-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
@@ -1434,16 +1830,20 @@
         }
       }
       
+      async function postQueueCall(activityId, number) {
+        return fetch(`${API_URL}/queue/call`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: localStorage.getItem('token')
+          },
+          body: JSON.stringify({ activityId, number })
+        });
+      }
+
       async function doCall(activityId, number) {
         try {
-          const response = await fetch(`${API_URL}/queue/call`, {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json', 
-              Authorization: localStorage.getItem('token') 
-            },
-            body: JSON.stringify({ activityId, number })
-          });
+          const response = await postQueueCall(activityId, number);
           
           if (response.ok) {
             showMessage('success', `已叫号: ${number}`);
@@ -1498,11 +1898,7 @@
         }
         
         try {
-          const response = await fetch(`${API_URL}/queue/call`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
-            body: JSON.stringify({ activityId, number: parseInt(number) })
-          });
+          const response = await postQueueCall(activityId, parseInt(number, 10));
           
           if (response.ok) {
             showMessage('success', `已叫号入场: ${number}`);
@@ -1517,14 +1913,128 @@
           showMessage('error', '网络错误');
         }
       }
+
+      const BATCH_CALL_MAX = 100;
+
+      async function fetchAllWaitingQueuesSorted(activityId) {
+        const url = `${API_URL}/queues?activityId=${encodeURIComponent(activityId)}&page=1&pageSize=20000`;
+        const response = await fetch(url, {
+          headers: { Authorization: localStorage.getItem('token') }
+        });
+        const data = await response.json();
+        let list = data.data || [];
+        list = list.filter((q) => q.status === 'waiting' || q.status === 'claimed');
+        list.sort(compareQueueNumberAscAdmin);
+        return list;
+      }
+
+      function batchCallPrompt() {
+        const activityId = document.getElementById('call-activity').value;
+        const raw = document.getElementById('batch-call-count').value;
+        const n = parseInt(String(raw).trim(), 10);
+        const rawInput = String(raw).trim();
+
+        if (!activityId) {
+          showMessage('warning', '请先选择活动');
+          return;
+        }
+        if (!Number.isFinite(n) || n < 1) {
+          showMessage('warning', '请输入批量数量（至少 1）');
+          return;
+        }
+        if (n > BATCH_CALL_MAX) {
+          showMessage('warning', `单次批量叫号最多 ${BATCH_CALL_MAX} 条`);
+          return;
+        }
+
+        fetchAllWaitingQueuesSorted(activityId)
+          .then((sorted) => {
+            if (sorted.length === 0) {
+              showMessage('warning', '当前没有等待叫号的记录');
+              return;
+            }
+            const toCall = sorted.slice(0, n);
+            const run = () => runBatchCalls(activityId, toCall, rawInput);
+
+            if (batchCallSkipConfirm) {
+              run();
+              return;
+            }
+
+            const nums = toCall.map((q) => q.号码 ?? q.number).join('、');
+            confirm({
+              title: '确认批量叫号',
+              content:
+                `<p>将按排号顺序依次叫号 <strong>${toCall.length}</strong> 条（共请求 ${n} 条，实际可叫 ${toCall.length} 条）：</p>` +
+                `<p style="word-break:break-all;color:#333;">${nums}</p>` +
+                `<p style="color:#888;font-size:13px;">确认后依次提交，中途失败会停止并提示。</p>` +
+                `<label style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-size:13px;color:#555;cursor:pointer;user-select:none;">` +
+                `<input type="checkbox" id="batch-call-dont-remind" style="margin-top:2px;flex-shrink:0;" />` +
+                `<span>不再提醒（本页内下次批量叫号直接执行；离开侧栏菜单、更换活动或点击搜索/切换等待与已叫号后恢复确认）</span>` +
+                `</label>`,
+              onOk: () => {
+                const el = document.getElementById('batch-call-dont-remind');
+                if (el && el.checked) {
+                  batchCallSkipConfirm = true;
+                }
+                run();
+              }
+            });
+          })
+          .catch(() => {
+            showMessage('error', '加载等待队列失败');
+          });
+      }
+
+      async function runBatchCalls(activityId, queues, rawInput) {
+        const batchCallBtn = document.getElementById('batch-call-btn');
+        const countInput = document.getElementById('batch-call-count');
+        if (batchCallBtn) batchCallBtn.disabled = true;
+        try {
+          for (let i = 0; i < queues.length; i++) {
+            const q = queues[i];
+            const num = q.号码 != null ? q.号码 : q.number;
+            const response = await postQueueCall(activityId, num);
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              showMessage('error', `批量叫号在第 ${i + 1} 条（排号 ${num}）失败：${data.error || response.statusText || '叫号失败'}`);
+              await loadStatus();
+              loadQueues(currentPage);
+              if (batchCallSkipConfirm && rawInput && countInput) {
+                countInput.value = rawInput;
+              }
+              return;
+            }
+          }
+          const labels = queues.map((q) => q.号码 ?? q.number).join('、');
+          showMessage('success', `已批量叫号 ${queues.length} 个：${labels}`);
+          if (batchCallSkipConfirm && rawInput && countInput) {
+            countInput.value = rawInput;
+          } else if (countInput) {
+            countInput.value = '';
+          }
+          await loadStatus();
+          loadQueues(1);
+        } catch (e) {
+          showMessage('error', '网络错误');
+          if (batchCallSkipConfirm && rawInput && countInput) {
+            countInput.value = rawInput;
+          }
+        } finally {
+          if (batchCallBtn) batchCallBtn.disabled = false;
+          loadStatus();
+        }
+      }
       
       document.getElementById('call-activity').addEventListener('change', () => {
+        resetBatchCallConfirmSession();
         currentPage = 1;
         loadStatus();
         loadQueues(1);
       });
       
       document.getElementById('call-manual-btn').addEventListener('click', callManual);
+      document.getElementById('batch-call-btn').addEventListener('click', batchCallPrompt);
       document.getElementById('queue-pause-btn').addEventListener('click', toggleQueuePause);
       
       document.getElementById('queue-prev-page').addEventListener('click', () => {
@@ -1538,8 +2048,45 @@
           loadQueues(currentPage + 1);
         }
       });
+
+      const queueJumpBtn = document.getElementById('queue-page-jump-btn');
+      const queueJumpInp = document.getElementById('queue-page-jump');
+      if (queueJumpBtn && queueJumpInp) {
+        const goQueuePage = () => {
+          const p = parseInt(String(queueJumpInp.value || '').trim(), 10);
+          if (!Number.isFinite(p) || p < 1) {
+            showMessage('warning', '请输入有效页码');
+            return;
+          }
+          const max = Math.max(1, totalPages);
+          const target = Math.min(max, p);
+          if (target !== p) showMessage('info', `页码已限制在 1～${max}`);
+          loadQueues(target);
+        };
+        queueJumpBtn.addEventListener('click', goQueuePage);
+        queueJumpInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') goQueuePage();
+        });
+      }
+
+      document.getElementById('queue-mgmt-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (queueMgmtSortBy === col) {
+          queueMgmtSortOrder = queueMgmtSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          queueMgmtSortBy = col;
+          queueMgmtSortOrder = col === 'createdAt' || col === 'calledAt' ? 'desc' : 'asc';
+        }
+        loadQueues(currentPage);
+      });
       
       document.getElementById('tab-waiting').addEventListener('click', () => {
+        resetBatchCallConfirmSession();
+        queueMgmtSortBy = 'number';
+        queueMgmtSortOrder = 'asc';
         currentTab = 'waiting';
         currentPage = 1;
         document.getElementById('tab-waiting').style.background = '#1890ff';
@@ -1547,9 +2094,13 @@
         document.getElementById('tab-called').style.background = 'transparent';
         document.getElementById('tab-called').style.color = '#666';
         loadQueues(1);
+        refreshQueueMgmtSortTh();
       });
       
       document.getElementById('tab-called').addEventListener('click', () => {
+        resetBatchCallConfirmSession();
+        queueMgmtSortBy = 'calledAt';
+        queueMgmtSortOrder = 'desc';
         currentTab = 'called';
         currentPage = 1;
         document.getElementById('tab-called').style.background = '#1890ff';
@@ -1557,15 +2108,18 @@
         document.getElementById('tab-waiting').style.background = 'transparent';
         document.getElementById('tab-waiting').style.color = '#666';
         loadQueues(1);
+        refreshQueueMgmtSortTh();
       });
       
       document.getElementById('search-btn').addEventListener('click', () => {
+        resetBatchCallConfirmSession();
         currentPage = 1;
         loadQueues(1);
       });
       
       document.getElementById('search-bracelet').addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
+          resetBatchCallConfirmSession();
           currentPage = 1;
           loadQueues(1);
         }
@@ -1573,6 +2127,7 @@
       
       document.getElementById('search-number').addEventListener('keyup', (e) => {
         if (e.key === 'Enter') {
+          resetBatchCallConfirmSession();
           currentPage = 1;
           loadQueues(1);
         }
@@ -1589,20 +2144,26 @@
             <span class="card-title">用户管理</span>
             <button id="add-user-btn" class="btn btn-primary">+ 添加用户</button>
           </div>
-          <table class="table">
+          <table class="table" id="users-admin-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>用户名</th>
-                <th>角色</th>
+                <th class="sortable-th" data-sort="id"><span>ID</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="username"><span>用户名</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="role"><span>角色</span><span class="admin-th-sort"></span></th>
                 <th>权限</th>
+                <th class="sortable-th" data-sort="createdAt"><span>创建时间</span><span class="admin-th-sort"></span></th>
               </tr>
             </thead>
             <tbody id="users-table-body"></tbody>
           </table>
-          <div id="users-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+          <div id="users-pagination" class="pagination-bar">
             <button id="users-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
-            <span id="users-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span id="users-page-info" style="min-width: 140px; text-align: center; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span class="pagination-jump">
+              <span>跳转</span>
+              <input type="number" id="users-page-jump" min="1" step="1" placeholder="页码" />
+              <button type="button" id="users-page-jump-btn" class="btn btn-default btn-small">确定</button>
+            </span>
             <button id="users-next-page" class="btn btn-default btn-small" disabled>下一页</button>
           </div>
         </div>
@@ -1611,18 +2172,27 @@
       
       let currentPage = 1;
       let totalPages = 1;
+      let userSortBy = 'id';
+      let userSortOrder = 'asc';
       
       async function loadUsers(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/users?page=${page}&pageSize=10`, {
+          const qs = new URLSearchParams();
+          qs.set('page', String(page));
+          qs.set('pageSize', '10');
+          qs.set('sortBy', userSortBy);
+          qs.set('sortOrder', userSortOrder);
+          const response = await fetch(`${API_URL}/users?${qs}`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
           const data = await response.json();
           const users = data.data || [];
-          currentPage = data.page || 1;
-          totalPages = data.totalPages || 1;
+          const ps = Number(data.pageSize) || 10;
+          currentPage = Number(data.page) || page || 1;
+          totalPages = safeTotalPages(data.total, ps, data.totalPages);
           renderUsers(users);
           updateUsersPagination();
+          refreshAdminTableSortArrows('users-admin-table', userSortBy, userSortOrder);
         } catch (error) {
           showMessage('error', '加载用户失败');
         }
@@ -1640,17 +2210,20 @@
               <td>${user.username}</td>
               <td><span class="tag tag-${roleColor}">${roleText}</span></td>
               <td>${user.permissions.join(', ')}</td>
+              <td>${user.createdAt ? new Date(user.createdAt).toLocaleString() : '—'}</td>
             </tr>
           `;
         }).join('');
         
         if (users.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">暂无数据</td></tr>';
         }
       }
       
       function updateUsersPagination() {
         document.getElementById('users-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        const j = document.getElementById('users-page-jump');
+        if (j) j.value = String(currentPage);
         document.getElementById('users-prev-page').disabled = currentPage <= 1;
         document.getElementById('users-next-page').disabled = currentPage >= totalPages;
       }
@@ -1722,6 +2295,39 @@
           loadUsers(currentPage + 1);
         }
       });
+      const usersJumpBtn = document.getElementById('users-page-jump-btn');
+      const usersJumpInp = document.getElementById('users-page-jump');
+      if (usersJumpBtn && usersJumpInp) {
+        const goUsers = () => {
+          const p = parseInt(String(usersJumpInp.value || '').trim(), 10);
+          if (!Number.isFinite(p) || p < 1) {
+            showMessage('warning', '请输入有效页码');
+            return;
+          }
+          const max = Math.max(1, totalPages);
+          const target = Math.min(max, p);
+          if (target !== p) showMessage('info', `页码已限制在 1～${max}`);
+          loadUsers(target);
+        };
+        usersJumpBtn.addEventListener('click', goUsers);
+        usersJumpInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') goUsers();
+        });
+      }
+
+      document.getElementById('users-admin-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (userSortBy === col) {
+          userSortOrder = userSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          userSortBy = col;
+          userSortOrder = col === 'createdAt' ? 'desc' : 'asc';
+        }
+        loadUsers(1);
+      });
       
       loadUsers();
     }
@@ -1734,153 +2340,298 @@
             <span class="card-title">角色管理</span>
             <button id="add-role-btn" class="btn btn-primary">+ 添加角色</button>
           </div>
-          <table class="table">
+          <table class="table" id="roles-admin-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>角色名称</th>
-                <th>权限列表</th>
+                <th class="sortable-th" data-sort="_id"><span>ID</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="name"><span>角色名称</span><span class="admin-th-sort"></span></th>
+                <th>权限</th>
+                <th class="sortable-th" data-sort="createdAt"><span>创建时间</span><span class="admin-th-sort"></span></th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="roles-table-body"></tbody>
           </table>
-          <div id="roles-pagination" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; text-align: center;">
+          <div id="roles-pagination" class="pagination-bar">
             <button id="roles-prev-page" class="btn btn-default btn-small" disabled>上一页</button>
-            <span id="roles-page-info" style="margin: 0 20px; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span id="roles-page-info" style="min-width: 140px; text-align: center; color: #666; font-size: 14px;">第 1 页 / 共 1 页</span>
+            <span class="pagination-jump">
+              <span>跳转</span>
+              <input type="number" id="roles-page-jump" min="1" step="1" placeholder="页码" />
+              <button type="button" id="roles-page-jump-btn" class="btn btn-default btn-small">确定</button>
+            </span>
             <button id="roles-next-page" class="btn btn-default btn-small" disabled>下一页</button>
           </div>
         </div>
       `;
       document.getElementById('main-content').innerHTML = html;
-      
+
       let currentPage = 1;
       let totalPages = 1;
-      
+      let roleSortBy = '_id';
+      let roleSortOrder = 'asc';
+      let permissionKeyToLabel = {};
+
+      async function refreshPermissionLabelMap() {
+        try {
+          const response = await fetch(`${API_URL}/permissions`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          const list = await response.json();
+          permissionKeyToLabel = {};
+          if (Array.isArray(list)) {
+            list.forEach((p) => {
+              if (p && p.key) permissionKeyToLabel[p.key] = p.name || p.key;
+            });
+          }
+        } catch (e) {
+          permissionKeyToLabel = {};
+        }
+      }
+
+      function formatRolePermissionsDisplay(keys) {
+        if (!Array.isArray(keys) || !keys.length) return '—';
+        return keys
+          .map((k) => permissionKeyToLabel[k] || k)
+          .map((t) => escapeHtml(t))
+          .join('、');
+      }
+
       async function loadRoles(page = 1) {
         try {
-          const response = await fetch(`${API_URL}/roles?page=${page}&pageSize=10`, {
+          await refreshPermissionLabelMap();
+          const qs = new URLSearchParams();
+          qs.set('page', String(page));
+          qs.set('pageSize', '10');
+          qs.set('sortBy', roleSortBy);
+          qs.set('sortOrder', roleSortOrder);
+          const response = await fetch(`${API_URL}/roles?${qs}`, {
             headers: { Authorization: localStorage.getItem('token') }
           });
           const data = await response.json();
           const roles = data.data || [];
-          currentPage = data.page || 1;
-          totalPages = data.totalPages || 1;
+          const ps = Number(data.pageSize) || 10;
+          currentPage = Number(data.page) || page || 1;
+          totalPages = safeTotalPages(data.total, ps, data.totalPages);
           renderRoles(roles);
           updateRolesPagination();
+          refreshAdminTableSortArrows('roles-admin-table', roleSortBy, roleSortOrder);
         } catch (error) {
           showMessage('error', '加载角色失败');
         }
       }
-      
+
       function renderRoles(roles) {
         const tbody = document.getElementById('roles-table-body');
-        tbody.innerHTML = roles.map(role => `
-          <tr>
-            <td>${role._id}</td>
-            <td>${role.name}</td>
-            <td>${role.permissions.join(', ')}</td>
-            <td><button class="btn btn-danger btn-small" onclick="deleteRole('${role._id}')">删除</button></td>
-          </tr>
-        `).join('');
-        
-        if (roles.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">暂无数据</td></tr>';
+        if (!roles || roles.length === 0) {
+          tbody.innerHTML =
+            '<tr><td colspan="5" style="text-align: center; color: #999;">暂无数据</td></tr>';
+          return;
         }
+        tbody.innerHTML = roles
+          .map((role) => {
+            const perms = Array.isArray(role.permissions) ? role.permissions : [];
+            const permText = formatRolePermissionsDisplay(perms);
+            const isAdminRole =
+              String(role.name || '').trim() === '管理员' || String(role._id) === '1';
+            const delBtn = isAdminRole
+              ? '<button type="button" class="btn btn-default btn-small" disabled title="系统预置的管理员角色不可删除" style="opacity:0.65;cursor:not-allowed;">删除</button>'
+              : '<button type="button" class="btn btn-danger btn-small" onclick="deleteRole(' +
+                JSON.stringify(String(role._id)) +
+                ')">删除</button>';
+            const createdCell =
+              role.createdAt != null && role.createdAt !== ''
+                ? escapeHtml(new Date(role.createdAt).toLocaleString())
+                : '—';
+            return (
+              '<tr>' +
+              '<td>' +
+              escapeHtml(String(role._id)) +
+              '</td>' +
+              '<td>' +
+              escapeHtml(role.name || '') +
+              '</td>' +
+              '<td style="max-width:420px;line-height:1.5;">' +
+              permText +
+              '</td>' +
+              '<td>' +
+              createdCell +
+              '</td>' +
+              '<td>' +
+              delBtn +
+              '</td>' +
+              '</tr>'
+            );
+          })
+          .join('');
       }
-      
+
       function updateRolesPagination() {
         document.getElementById('roles-page-info').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+        const j = document.getElementById('roles-page-jump');
+        if (j) j.value = String(currentPage);
         document.getElementById('roles-prev-page').disabled = currentPage <= 1;
         document.getElementById('roles-next-page').disabled = currentPage >= totalPages;
       }
-      
+
       function deleteRole(id) {
         confirm({
           title: '确认删除',
           content: '确定要删除这个角色吗？',
           onOk: async () => {
             try {
-              const response = await fetch(`${API_URL}/roles/${id}`, {
+              const response = await fetch(`${API_URL}/roles/${encodeURIComponent(id)}`, {
                 method: 'DELETE',
                 headers: { Authorization: localStorage.getItem('token') }
               });
-              
+              const data = await parseApiJsonResponse(response);
               if (response.ok) {
                 showMessage('success', '删除成功');
                 loadRoles();
               } else {
-                showMessage('error', '删除失败');
+                showMessage('error', data.error || '删除失败');
               }
             } catch (error) {
-              showMessage('error', '网络错误');
+              showMessage('error', error.message || '网络错误');
             }
           }
         });
       }
-      
-      document.getElementById('add-role-btn').addEventListener('click', () => {
+
+      document.getElementById('add-role-btn').addEventListener('click', async () => {
+        let permDefs = [];
+        try {
+          const response = await fetch(`${API_URL}/permissions`, {
+            headers: { Authorization: localStorage.getItem('token') }
+          });
+          permDefs = await response.json();
+        } catch (e) {
+          showMessage('error', '加载权限列表失败');
+          return;
+        }
+        if (!Array.isArray(permDefs) || !permDefs.length) {
+          showMessage('error', '未获取到权限定义');
+          return;
+        }
+        const checksHtml = permDefs
+          .map((p) => {
+            const key = escapeHtml(String(p.key));
+            const title = escapeHtml(String(p.name || p.key));
+            return (
+              '<label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;cursor:pointer;font-weight:500;">' +
+              '<input type="checkbox" class="add-role-perm-cb" value="' +
+              key +
+              '" style="margin-top:4px;flex-shrink:0;" />' +
+              '<span>' +
+              title +
+              '</span>' +
+              '</label>'
+            );
+          })
+          .join('');
         createModal({
           title: '添加角色',
-          body: `
-            <div class="form-group">
-              <label>角色名称</label>
-              <input type="text" id="add-role-name" class="form-control" placeholder="请输入角色名称" />
-            </div>
-            <div class="form-group">
-              <label>权限列表（逗号分隔）</label>
-              <input type="text" id="add-role-permissions" class="form-control" placeholder="如：admin, activity.manage" />
-            </div>
-          `,
-          footer: `
-            <button class="btn btn-default" onclick="this.closest('.modal-overlay').remove()">取消</button>
-            <button class="btn btn-primary" onclick="submitAddRole()">确定</button>
-          `
+          body:
+            '<div class="form-group">' +
+            '<label>角色名称</label>' +
+            '<input type="text" id="add-role-name" class="form-control" placeholder="请输入角色名称" />' +
+            '</div>' +
+            '<div class="form-group">' +
+            '<label>权限（勾选对应后台能力）</label>' +
+            '<div id="add-role-perm-box" style="border:1px solid #eee;border-radius:6px;padding:12px 14px;max-height:280px;overflow-y:auto;background:#fafafa;">' +
+            checksHtml +
+            '</div>' +
+            '</div>',
+          footer:
+            '<button class="btn btn-default" onclick="this.closest(\'.modal-overlay\').remove()">取消</button>' +
+            '<button class="btn btn-primary" onclick="submitAddRole()">确定</button>'
         });
       });
-      
+
       window.submitAddRole = async () => {
-        const name = document.getElementById('add-role-name').value;
-        const permissions = document.getElementById('add-role-permissions').value.split(',').map(p => p.trim()).filter(p => p);
-        
+        const nameEl = document.getElementById('add-role-name');
+        const name = nameEl ? nameEl.value.trim() : '';
+        const permissions = Array.from(document.querySelectorAll('.add-role-perm-cb:checked')).map(
+          (cb) => cb.value
+        );
+
         if (!name) {
           showMessage('warning', '请输入角色名称');
           return;
         }
-        
+        if (!permissions.length) {
+          showMessage('warning', '请至少勾选一项权限');
+          return;
+        }
+
         try {
           const response = await fetch(`${API_URL}/roles`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: localStorage.getItem('token') },
             body: JSON.stringify({ name, permissions })
           });
-          
+          const data = await parseApiJsonResponse(response);
+
           if (response.ok) {
             showMessage('success', '创建成功');
             document.querySelector('.modal-overlay').remove();
             loadRoles();
           } else {
-            showMessage('error', '创建失败');
+            showMessage('error', data.error || '创建失败');
           }
         } catch (error) {
-          showMessage('error', '网络错误');
+          showMessage('error', error.message || '网络错误');
         }
       };
-      
+
       window.deleteRole = deleteRole;
-      
+
       document.getElementById('roles-prev-page').addEventListener('click', () => {
         if (currentPage > 1) {
           loadRoles(currentPage - 1);
         }
       });
-      
+
       document.getElementById('roles-next-page').addEventListener('click', () => {
         if (currentPage < totalPages) {
           loadRoles(currentPage + 1);
         }
       });
-      
+
+      const rolesJumpBtn = document.getElementById('roles-page-jump-btn');
+      const rolesJumpInp = document.getElementById('roles-page-jump');
+      if (rolesJumpBtn && rolesJumpInp) {
+        const goRoles = () => {
+          const p = parseInt(String(rolesJumpInp.value || '').trim(), 10);
+          if (!Number.isFinite(p) || p < 1) {
+            showMessage('warning', '请输入有效页码');
+            return;
+          }
+          const max = Math.max(1, totalPages);
+          const target = Math.min(max, p);
+          if (target !== p) showMessage('info', `页码已限制在 1～${max}`);
+          loadRoles(target);
+        };
+        rolesJumpBtn.addEventListener('click', goRoles);
+        rolesJumpInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') goRoles();
+        });
+      }
+
+      document.getElementById('roles-admin-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (roleSortBy === col) {
+          roleSortOrder = roleSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          roleSortBy = col;
+          roleSortOrder = col === 'createdAt' ? 'desc' : 'asc';
+        }
+        loadRoles(1);
+      });
+
       loadRoles();
     }
     
@@ -1906,18 +2657,18 @@
           <div class="card-header">
             <span class="card-title">微信用户管理</span>
           </div>
-          <table class="table">
+          <table class="table" id="wechat-users-admin-table">
             <thead>
               <tr>
                 <th>头像</th>
-                <th>昵称</th>
-                <th>OpenID</th>
+                <th class="sortable-th" data-sort="nickName"><span>昵称</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="openid"><span>OpenID</span><span class="admin-th-sort"></span></th>
                 <th>UnionID</th>
-                <th>创建时间</th>
-                <th>最后登录</th>
-                <th>活动数量</th>
-                <th>绑定数量</th>
-                <th>员工状态</th>
+                <th class="sortable-th" data-sort="createdAt"><span>创建时间</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="lastLoginAt"><span>最后登录</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="activityCount"><span>活动数量</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="bindingCount"><span>绑定数量</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="isStaff"><span>员工状态</span><span class="admin-th-sort"></span></th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -1929,6 +2680,8 @@
       document.getElementById('main-content').innerHTML = html;
       
       let pagination = { current: 1, pageSize: 10, total: 0 };
+      let wechatSortBy = 'createdAt';
+      let wechatSortOrder = 'desc';
       
       function renderWechatUsers(users) {
         const tbody = document.getElementById('wechat-users-table-body');
@@ -1959,35 +2712,65 @@
       
       function renderPagination() {
         const container = document.getElementById('wechat-pagination-container');
-        const totalPages = Math.ceil(pagination.total / pagination.pageSize);
-        
-        if (totalPages <= 1) {
-          container.innerHTML = '';
-          return;
-        }
-        
-        let html = `<button class="btn btn-default btn-small" ${pagination.current === 1 ? 'disabled' : ''} data-action="prev">上一页</button>`;
-        for (let i = 1; i <= totalPages; i++) {
-          html += `<button class="btn btn-default btn-small ${pagination.current === i ? 'active' : ''}" data-page="${i}">${i}</button>`;
-        }
-        html += `<button class="btn btn-default btn-small" ${pagination.current === totalPages ? 'disabled' : ''} data-action="next">下一页</button>`;
-        
+        const totalPages = safeTotalPages(pagination.total, pagination.pageSize);
+        const cur = Math.min(Math.max(1, pagination.current), totalPages);
+        if (cur !== pagination.current) pagination.current = cur;
+
+        const html =
+          '<div class="pagination-bar" style="border-top:none;margin-top:0;padding-top:0;">' +
+          '<button type="button" class="btn btn-default btn-small"' +
+          (pagination.current <= 1 ? ' disabled' : '') +
+          ' data-action="prev">上一页</button>' +
+          '<span style="min-width:130px;text-align:center;color:#666;font-size:14px;">第 ' +
+          pagination.current +
+          ' 页 / 共 ' +
+          totalPages +
+          ' 页</span>' +
+          '<span class="pagination-jump">' +
+          '<span>跳转</span>' +
+          '<input type="number" id="wechat-page-jump" min="1" step="1" placeholder="页码" value="' +
+          pagination.current +
+          '" />' +
+          '<button type="button" class="btn btn-default btn-small" id="wechat-page-jump-btn">确定</button></span>' +
+          '<button type="button" class="btn btn-default btn-small"' +
+          (pagination.current >= totalPages ? ' disabled' : '') +
+          ' data-action="next">下一页</button>' +
+          '</div>';
+
         container.innerHTML = html;
-        
-        container.querySelectorAll('button').forEach(btn => {
-          btn.addEventListener('click', () => {
-            if (btn.dataset.action === 'prev' && pagination.current > 1) {
-              pagination.current--;
-              loadWechatUsers();
-            } else if (btn.dataset.action === 'next' && pagination.current < totalPages) {
-              pagination.current++;
-              loadWechatUsers();
-            } else if (btn.dataset.page) {
-              pagination.current = parseInt(btn.dataset.page);
-              loadWechatUsers();
-            }
-          });
+
+        container.querySelector('[data-action="prev"]').addEventListener('click', () => {
+          if (pagination.current > 1) {
+            pagination.current--;
+            loadWechatUsers();
+          }
         });
+        container.querySelector('[data-action="next"]').addEventListener('click', () => {
+          if (pagination.current < totalPages) {
+            pagination.current++;
+            loadWechatUsers();
+          }
+        });
+        const wj = document.getElementById('wechat-page-jump-btn');
+        const wi = document.getElementById('wechat-page-jump');
+        if (wj && wi) {
+          const go = () => {
+            const p = parseInt(String(wi.value || '').trim(), 10);
+            if (!Number.isFinite(p) || p < 1) {
+              showMessage('warning', '请输入有效页码');
+              return;
+            }
+            const max = totalPages;
+            const target = Math.min(max, p);
+            if (target !== p) showMessage('info', '页码已限制在 1～' + max);
+            pagination.current = target;
+            loadWechatUsers();
+          };
+          wj.addEventListener('click', go);
+          wi.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') go();
+          });
+        }
       }
       
       async function loadWechatUsers() {
@@ -1995,7 +2778,9 @@
           nickname: document.getElementById('wechat-filter-nickname').value,
           openid: document.getElementById('wechat-filter-openid').value,
           page: pagination.current,
-          pageSize: pagination.pageSize
+          pageSize: pagination.pageSize,
+          sortBy: wechatSortBy,
+          sortOrder: wechatSortOrder
         };
         
         const params = new URLSearchParams(filters);
@@ -2015,6 +2800,7 @@
             renderWechatUsers(data.data || []);
             pagination.total = data.total || 0;
             renderPagination();
+            refreshAdminTableSortArrows('wechat-users-admin-table', wechatSortBy, wechatSortOrder);
           } else {
             showMessage('error', data.error || '加载失败');
           }
@@ -2150,6 +2936,31 @@
       
       window.toggleStaff = toggleStaff;
       
+      document.getElementById('wechat-users-admin-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (wechatSortBy === col) {
+          wechatSortOrder = wechatSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          wechatSortBy = col;
+          if (
+            col === 'createdAt' ||
+            col === 'lastLoginAt' ||
+            col === 'activityCount' ||
+            col === 'bindingCount' ||
+            col === 'isStaff'
+          ) {
+            wechatSortOrder = 'desc';
+          } else {
+            wechatSortOrder = 'asc';
+          }
+        }
+        pagination.current = 1;
+        loadWechatUsers();
+      });
+      
       // 绑定查询按钮事件
       const filterBtn = document.getElementById('wechat-filter-btn');
       if (filterBtn) {
@@ -2178,6 +2989,436 @@
       loadWechatUsers();
     }
     
+    function renderBraceletMakePage() {
+      const html = `
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;border-bottom:1px solid #e8e8e8;padding-bottom:12px;">
+          <button type="button" id="bracelet-subtab-only" class="btn btn-primary">仅制作编号</button>
+          <button type="button" id="bracelet-subtab-bind" class="btn btn-default">制作并登记手环</button>
+        </div>
+        <div id="bracelet-pane-only">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">批量制作普通手环</span>
+            </div>
+            <p style="color:#666;margin-bottom:16px;line-height:1.6;">按系统格式 <strong>MG#</strong> 加 24 位随机字符生成手环编号；与已登记排队中的手环、历史制作批次自动去重，保证唯一。本页签<strong>不</strong>写入登记列表。</p>
+            <div class="form-inline" style="align-items:flex-end;">
+              <div class="form-group">
+                <label>制作数量</label>
+                <input type="number" id="bracelet-batch-count" class="form-control" min="1" max="10000" step="1" placeholder="1～10000" style="width:180px;" />
+              </div>
+              <button type="button" id="bracelet-batch-generate-btn" class="btn btn-primary">生成</button>
+            </div>
+          </div>
+        </div>
+        <div id="bracelet-pane-bind" style="display:none;">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">制作并登记手环</span>
+            </div>
+            <p style="color:#666;line-height:1.65;margin-bottom:16px;">选择<strong>已启用</strong>且<strong>当前没有任何登记</strong>的活动，输入数量后将生成手环编号，并自动分配排号 <strong>1～n</strong> 且立即完成登记绑定（在「登记手环」列表可见）。每个活动<strong>仅能使用本功能一次</strong>；通过本功能生成的登记<strong>不可解绑</strong>。</p>
+            <div class="form-inline" style="align-items:flex-end;flex-wrap:wrap;">
+              <div class="form-group">
+                <label>活动</label>
+                <div class="select-wrapper">
+                  <select id="bracelet-bind-activity" class="form-select" style="min-width:260px;">
+                    <option value="">加载中…</option>
+                  </select>
+                  <span class="select-arrow">▼</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>制作数量</label>
+                <input type="number" id="bracelet-bind-count" class="form-control" min="1" max="10000" step="1" placeholder="1～10000" style="width:180px;" />
+              </div>
+              <button type="button" id="bracelet-bind-generate-btn" class="btn btn-primary">生成并登记</button>
+            </div>
+            <p id="bracelet-bind-eligible-hint" style="color:#999;font-size:12px;margin:12px 0 0;">下拉仅列出已启用、暂无登记、且未使用过本功能的活动。</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">制作记录</span>
+            <div class="card-actions">
+              <button type="button" id="bracelet-batches-refresh-btn" class="btn btn-default">刷新</button>
+            </div>
+          </div>
+          <table class="table" id="bracelet-batches-admin-table">
+            <thead>
+              <tr>
+                <th class="sortable-th" data-sort="_id"><span>批次 ID</span><span class="admin-th-sort"></span></th>
+                <th>类型</th>
+                <th class="sortable-th" data-sort="activityName"><span>活动</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="count"><span>数量</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="createdBy"><span>操作人</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="createdAt"><span>制作时间</span><span class="admin-th-sort"></span></th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="bracelet-batches-table-body">
+              <tr><td colspan="7" style="text-align:center;color:#999;">加载中…</td></tr>
+            </tbody>
+          </table>
+          <div id="bracelet-batches-pagination" class="pagination-bar" style="margin-top:16px;">
+            <button type="button" id="bracelet-batches-prev" class="btn btn-default btn-small" disabled>上一页</button>
+            <span id="bracelet-batches-page-info" style="min-width:160px;text-align:center;color:#666;font-size:14px;">第 1 页 / 共 1 页</span>
+            <span class="pagination-jump">
+              <span>跳转</span>
+              <input type="number" id="bracelet-batches-page-jump" min="1" step="1" placeholder="页码" />
+              <button type="button" id="bracelet-batches-page-jump-btn" class="btn btn-default btn-small">确定</button>
+            </span>
+            <button type="button" id="bracelet-batches-next" class="btn btn-default btn-small" disabled>下一页</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('main-content').innerHTML = html;
+
+      const braceletBatchPagination = { current: 1, pageSize: 10, total: 0, totalPages: 1 };
+      let braceletBatchSortBy = 'createdAt';
+      let braceletBatchSortOrder = 'desc';
+
+      function switchBraceletSubtab(which) {
+        const btnOnly = document.getElementById('bracelet-subtab-only');
+        const btnBind = document.getElementById('bracelet-subtab-bind');
+        const paneOnly = document.getElementById('bracelet-pane-only');
+        const paneBind = document.getElementById('bracelet-pane-bind');
+        if (!btnOnly || !btnBind || !paneOnly || !paneBind) return;
+        if (which === 'bind') {
+          btnOnly.classList.remove('btn-primary');
+          btnOnly.classList.add('btn-default');
+          btnBind.classList.remove('btn-default');
+          btnBind.classList.add('btn-primary');
+          paneOnly.style.display = 'none';
+          paneBind.style.display = '';
+          loadEligibleBindActivities();
+        } else {
+          btnBind.classList.remove('btn-primary');
+          btnBind.classList.add('btn-default');
+          btnOnly.classList.remove('btn-default');
+          btnOnly.classList.add('btn-primary');
+          paneBind.style.display = 'none';
+          paneOnly.style.display = '';
+        }
+      }
+
+      async function loadEligibleBindActivities() {
+        const sel = document.getElementById('bracelet-bind-activity');
+        const hint = document.getElementById('bracelet-bind-eligible-hint');
+        if (!sel) return;
+        const token = localStorage.getItem('token');
+        try {
+          const response = await fetch(
+            `${API_URL}/admin/bracelet-batches/eligible-bind-activities`,
+            { headers: { Authorization: token } }
+          );
+          const data = await parseApiJsonResponse(response);
+          if (!response.ok) {
+            sel.innerHTML = '<option value="">' + escapeHtml(data.error || '加载失败') + '</option>';
+            return;
+          }
+          const acts = Array.isArray(data.data) ? data.data : [];
+          sel.innerHTML =
+            '<option value="">请选择活动</option>' +
+            acts
+              .map(function (a) {
+                return (
+                  '<option value="' +
+                  escapeHtml(String(a._id)) +
+                  '">' +
+                  escapeHtml(a.name || String(a._id)) +
+                  '</option>'
+                );
+              })
+              .join('');
+          if (hint) {
+            hint.textContent = acts.length
+              ? '下拉仅列出已启用、暂无登记、且未使用过「制作并登记」的活动。'
+              : '当前没有符合条件的活动（需已启用、无登记、且未使用过本功能）。';
+          }
+        } catch (e) {
+          sel.innerHTML = '<option value="">加载失败</option>';
+        }
+      }
+
+      async function exportBraceletBatchCsv(batchId) {
+        const token = localStorage.getItem('token');
+        try {
+          const response = await fetch(`${API_URL}/admin/bracelet-batches/${batchId}`, {
+            headers: { Authorization: token }
+          });
+          const data = await parseApiJsonResponse(response);
+          if (!response.ok) {
+            showMessage('error', data.error || '导出失败（HTTP ' + response.status + '）');
+            return;
+          }
+          const ids = Array.isArray(data.braceletIds) ? data.braceletIds : [];
+          const qnums = Array.isArray(data.queueNumbers) ? data.queueNumbers : [];
+          const hasNums = qnums.length > 0 && qnums.length === ids.length;
+          const lines = hasNums ? ['序号,手环编号,排号'] : ['序号,手环编号'];
+          ids.forEach((id, i) => {
+            if (hasNums) {
+              lines.push((i + 1) + ',' + String(id) + ',' + String(qnums[i] != null ? qnums[i] : ''));
+            } else {
+              lines.push((i + 1) + ',' + String(id));
+            }
+          });
+          const csv = '\uFEFF' + lines.join('\r\n');
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = '手环制作_' + batchId + '.csv';
+          a.click();
+          URL.revokeObjectURL(a.href);
+          showMessage('success', hasNums ? '已导出 CSV（序号、手环编号、排号）' : '已导出 CSV（序号、手环编号）');
+        } catch (e) {
+          var exMsg = e && e.message ? e.message : '导出失败';
+          if (e && e.name === 'TypeError' && /fetch|Failed to fetch|NetworkError/i.test(String(e.message))) {
+            exMsg = '无法连接后端，请确认服务已启动。';
+          }
+          showMessage('error', exMsg);
+        }
+      }
+
+      function renderBraceletBatchPagination() {
+        const prev = document.getElementById('bracelet-batches-prev');
+        const next = document.getElementById('bracelet-batches-next');
+        const info = document.getElementById('bracelet-batches-page-info');
+        if (!prev || !next || !info) return;
+        const tp = braceletBatchPagination.totalPages || 1;
+        const cur = braceletBatchPagination.current || 1;
+        info.textContent = '第 ' + cur + ' 页 / 共 ' + tp + ' 页（共 ' + (braceletBatchPagination.total || 0) + ' 条）';
+        prev.disabled = cur <= 1;
+        next.disabled = cur >= tp;
+        const bj = document.getElementById('bracelet-batches-page-jump');
+        if (bj) bj.value = String(cur);
+      }
+
+      async function loadBraceletBatchRows() {
+        const tbody = document.getElementById('bracelet-batches-table-body');
+        const token = localStorage.getItem('token');
+        const page = braceletBatchPagination.current;
+        const pageSize = braceletBatchPagination.pageSize;
+        try {
+          const response = await fetch(
+            `${API_URL}/admin/bracelet-batches?page=${page}&pageSize=${pageSize}&sortBy=${encodeURIComponent(
+              braceletBatchSortBy
+            )}&sortOrder=${encodeURIComponent(braceletBatchSortOrder)}`,
+            { headers: { Authorization: token } }
+          );
+          const data = await parseApiJsonResponse(response);
+          if (!response.ok) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ff4d4f;">' + escapeHtml(data.error || '加载失败（HTTP ' + response.status + '）') + '</td></tr>';
+            renderBraceletBatchPagination();
+            refreshAdminTableSortArrows('bracelet-batches-admin-table', braceletBatchSortBy, braceletBatchSortOrder);
+            return;
+          }
+          braceletBatchPagination.total = typeof data.total === 'number' ? data.total : 0;
+          braceletBatchPagination.totalPages =
+            typeof data.totalPages === 'number' && data.totalPages >= 1 ? data.totalPages : 1;
+          if (braceletBatchPagination.current > braceletBatchPagination.totalPages) {
+            braceletBatchPagination.current = braceletBatchPagination.totalPages;
+            await loadBraceletBatchRows();
+            return;
+          }
+          const rows = Array.isArray(data.data) ? data.data : [];
+          if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">暂无记录，请先在上方页签中生成</td></tr>';
+            renderBraceletBatchPagination();
+            refreshAdminTableSortArrows('bracelet-batches-admin-table', braceletBatchSortBy, braceletBatchSortOrder);
+            return;
+          }
+          tbody.innerHTML = rows.map((r) => {
+            const t = r.createdAt ? new Date(r.createdAt).toLocaleString() : '-';
+            const bid = escapeHtml(String(r._id));
+            const actCell = r.activityName ? escapeHtml(r.activityName) : '—';
+            return '<tr>'
+              + '<td><code style="font-size:12px;">' + bid + '</code></td>'
+              + '<td>' + escapeHtml(r.label || (r.kind === 'bind_register' ? '制作并登记' : '普通手环')) + '</td>'
+              + '<td>' + actCell + '</td>'
+              + '<td>' + escapeHtml(String(r.count != null ? r.count : '')) + '</td>'
+              + '<td>' + escapeHtml(r.createdBy || '-') + '</td>'
+              + '<td>' + escapeHtml(t) + '</td>'
+              + '<td><button type="button" class="btn btn-success btn-small bracelet-batch-export-btn" data-batch-id="' + bid + '">导出</button></td>'
+              + '</tr>';
+          }).join('');
+          tbody.querySelectorAll('.bracelet-batch-export-btn').forEach((btn) => {
+            btn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const id = btn.getAttribute('data-batch-id');
+              if (id) exportBraceletBatchCsv(id);
+            });
+          });
+          renderBraceletBatchPagination();
+          refreshAdminTableSortArrows('bracelet-batches-admin-table', braceletBatchSortBy, braceletBatchSortOrder);
+        } catch (e) {
+          var errMsg = e && e.message ? e.message : '加载失败';
+          if (e && e.name === 'TypeError' && /fetch|Failed to fetch|NetworkError/i.test(String(e.message))) {
+            errMsg = '无法连接后端，请确认服务已启动且通过 ' + BASE_URL + ' 访问（勿用本地文件 file:// 打开页面）。';
+          }
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ff4d4f;">' + escapeHtml(errMsg) + '</td></tr>';
+          renderBraceletBatchPagination();
+          refreshAdminTableSortArrows('bracelet-batches-admin-table', braceletBatchSortBy, braceletBatchSortOrder);
+        }
+      }
+
+      document.getElementById('bracelet-batches-admin-table').addEventListener('click', (ev) => {
+        const th = ev.target.closest('th.sortable-th');
+        if (!th) return;
+        const col = th.getAttribute('data-sort');
+        if (!col) return;
+        if (braceletBatchSortBy === col) {
+          braceletBatchSortOrder = braceletBatchSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+          braceletBatchSortBy = col;
+          braceletBatchSortOrder =
+            col === 'createdAt' || col === 'count' || col === '_id' ? 'desc' : 'asc';
+        }
+        braceletBatchPagination.current = 1;
+        loadBraceletBatchRows();
+      });
+
+      document.getElementById('bracelet-subtab-only').addEventListener('click', () => {
+        switchBraceletSubtab('only');
+      });
+      document.getElementById('bracelet-subtab-bind').addEventListener('click', () => {
+        switchBraceletSubtab('bind');
+      });
+
+      document.getElementById('bracelet-bind-generate-btn').addEventListener('click', async () => {
+        const sel = document.getElementById('bracelet-bind-activity');
+        const input = document.getElementById('bracelet-bind-count');
+        const activityId = (sel && sel.value) || '';
+        const n = parseInt(String(input.value).trim(), 10);
+        if (!activityId) {
+          showMessage('warning', '请先选择活动');
+          return;
+        }
+        if (!Number.isFinite(n) || n < 1 || n > 10000) {
+          showMessage('warning', '请输入 1～10000 的制作数量');
+          return;
+        }
+        const btn = document.getElementById('bracelet-bind-generate-btn');
+        btn.disabled = true;
+        btn.textContent = '处理中…';
+        try {
+          const response = await fetch(`${API_URL}/admin/bracelet-batches/bind-register`, {
+            method: 'POST',
+            headers: {
+              Authorization: localStorage.getItem('token'),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ activityId: activityId, count: n })
+          });
+          const data = await parseApiJsonResponse(response);
+          if (!response.ok) {
+            showMessage('error', data.error || '操作失败（HTTP ' + response.status + '）');
+            return;
+          }
+          showMessage(
+            'success',
+            '已为活动生成并登记 ' +
+              (data.count || n) +
+              ' 条（排号 1～' +
+              (data.count || n) +
+              '），可在「登记手环」中查看'
+          );
+          input.value = '';
+          braceletBatchPagination.current = 1;
+          await loadBraceletBatchRows();
+          await loadEligibleBindActivities();
+        } catch (e) {
+          var bMsg = e && e.message ? e.message : '请求失败';
+          if (e && e.name === 'TypeError' && /fetch|Failed to fetch|NetworkError/i.test(String(e.message))) {
+            bMsg = '无法连接后端，请确认服务已启动。';
+          }
+          showMessage('error', bMsg);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '生成并登记';
+        }
+      });
+
+      document.getElementById('bracelet-batch-generate-btn').addEventListener('click', async () => {
+        const input = document.getElementById('bracelet-batch-count');
+        const n = parseInt(String(input.value).trim(), 10);
+        if (!Number.isFinite(n) || n < 1 || n > 10000) {
+          showMessage('warning', '请输入 1～10000 的制作数量');
+          return;
+        }
+        const btn = document.getElementById('bracelet-batch-generate-btn');
+        btn.disabled = true;
+        btn.textContent = '生成中…';
+        try {
+          const response = await fetch(`${API_URL}/admin/bracelet-batches`, {
+            method: 'POST',
+            headers: {
+              Authorization: localStorage.getItem('token'),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ count: n, kind: 'normal' })
+          });
+          const data = await parseApiJsonResponse(response);
+          if (!response.ok) {
+            showMessage('error', data.error || '生成失败（HTTP ' + response.status + '）');
+            return;
+          }
+          showMessage('success', '已生成 ' + (data.count || n) + ' 条普通手环编号');
+          input.value = '';
+          braceletBatchPagination.current = 1;
+          await loadBraceletBatchRows();
+        } catch (e) {
+          var genMsg = e && e.message ? e.message : '请求失败';
+          if (e && e.name === 'TypeError' && /fetch|Failed to fetch|NetworkError/i.test(String(e.message))) {
+            genMsg = '无法连接后端，请确认已启动服务（如 npm run dev），并通过 ' + BASE_URL + ' 打开后台，勿用 file:// 直接打开 HTML。';
+          }
+          showMessage('error', genMsg);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '生成';
+        }
+      });
+
+      document.getElementById('bracelet-batches-refresh-btn').addEventListener('click', () => {
+        braceletBatchPagination.current = 1;
+        loadBraceletBatchRows();
+      });
+
+      document.getElementById('bracelet-batches-prev').addEventListener('click', () => {
+        if (braceletBatchPagination.current > 1) {
+          braceletBatchPagination.current--;
+          loadBraceletBatchRows();
+        }
+      });
+      document.getElementById('bracelet-batches-next').addEventListener('click', () => {
+        if (braceletBatchPagination.current < braceletBatchPagination.totalPages) {
+          braceletBatchPagination.current++;
+          loadBraceletBatchRows();
+        }
+      });
+
+      const bbJumpBtn = document.getElementById('bracelet-batches-page-jump-btn');
+      const bbJumpInp = document.getElementById('bracelet-batches-page-jump');
+      if (bbJumpBtn && bbJumpInp) {
+        const goBb = () => {
+          const p = parseInt(String(bbJumpInp.value || '').trim(), 10);
+          if (!Number.isFinite(p) || p < 1) {
+            showMessage('warning', '请输入有效页码');
+            return;
+          }
+          const max = Math.max(1, braceletBatchPagination.totalPages || 1);
+          const target = Math.min(max, p);
+          if (target !== p) showMessage('info', '页码已限制在 1～' + max);
+          braceletBatchPagination.current = target;
+          loadBraceletBatchRows();
+        };
+        bbJumpBtn.addEventListener('click', goBb);
+        bbJumpInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') goBb();
+        });
+      }
+
+      loadBraceletBatchRows();
+    }
+    
     // Main Layout
     let currentUser = null;
     
@@ -2196,11 +3437,14 @@
             <div class="layout-sider">
               <ul class="menu">
                 <li class="menu-item active" id="menu-activity"><span>活动管理</span></li>
+                ${user.role === 'admin' || (Array.isArray(user.permissions) && user.permissions.includes('activity.manage'))
+                  ? '<li class="menu-item" id="menu-bracelet-make"><span>制作手环</span></li>'
+                  : ''}
                 <li class="menu-item" id="menu-bind"><span>登记手环</span></li>
-                <li class="menu-item" id="menu-queue"><span>叫号管理</span></li>
-                <li class="menu-item" id="menu-users"><span>用户管理</span></li>
-                <li class="menu-item" id="menu-roles"><span>角色管理</span></li>
                 <li class="menu-item" id="menu-wechat"><span>微信用户</span></li>
+                <li class="menu-item" id="menu-queue"><span>叫号管理</span></li>
+                <li class="menu-item" id="menu-roles"><span>角色管理</span></li>
+                <li class="menu-item" id="menu-users"><span>用户管理</span></li>
               </ul>
             </div>
             <div class="layout-content" id="main-content"></div>
@@ -2218,10 +3462,23 @@
         setActiveMenu('activity');
         renderActivityManagement();
       });
+
+      const menuBraceletMake = document.getElementById('menu-bracelet-make');
+      if (menuBraceletMake) {
+        menuBraceletMake.addEventListener('click', () => {
+          setActiveMenu('bracelet-make');
+          renderBraceletMakePage();
+        });
+      }
       
       document.getElementById('menu-bind').addEventListener('click', () => {
         setActiveMenu('bind');
         renderBindManagement();
+      });
+
+      document.getElementById('menu-wechat').addEventListener('click', () => {
+        setActiveMenu('wechat');
+        renderWechatUserManagement();
       });
       
       document.getElementById('menu-queue').addEventListener('click', () => {
@@ -2229,19 +3486,14 @@
         renderQueueManagement();
       });
       
-      document.getElementById('menu-users').addEventListener('click', () => {
-        setActiveMenu('users');
-        renderUserManagement();
-      });
-      
       document.getElementById('menu-roles').addEventListener('click', () => {
         setActiveMenu('roles');
         renderRoleManagement();
       });
       
-      document.getElementById('menu-wechat').addEventListener('click', () => {
-        setActiveMenu('wechat');
-        renderWechatUserManagement();
+      document.getElementById('menu-users').addEventListener('click', () => {
+        setActiveMenu('users');
+        renderUserManagement();
       });
       
       renderActivityManagement();

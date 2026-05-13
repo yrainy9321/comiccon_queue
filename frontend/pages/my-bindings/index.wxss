@@ -46,6 +46,37 @@
   height: 24rpx;
 }
 
+.section-called-head {
+  margin: 28rpx 0 16rpx;
+  padding: 0 8rpx;
+}
+
+.section-called-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1f2430;
+}
+
+.card-called-today {
+  background: linear-gradient(180deg, #fafbff 0%, #fff 40%);
+  border: 1rpx solid #e2e8f0;
+  box-shadow: 0 2rpx 16rpx rgba(15, 23, 42, 0.04);
+}
+
+.card-called-today .queue-number {
+  color: #94a3b8;
+}
+
+.queue-status.state-called-today {
+  border-color: #5eead4;
+  background: #f0fdfa;
+}
+
+.queue-status.state-called-today .queue-status-txt {
+  color: #0f766e;
+}
+
 .card {
   background: #fff;
   border-radius: 28rpx;
@@ -196,7 +227,16 @@
   background: #fafbfc;
 }
 
+.queue-status.state-notWaiting {
+  border-color: #d9dde5;
+  background: #fafbfc;
+}
+
 .queue-status.state-unknown .queue-status-txt {
+  color: #6b7280;
+}
+
+.queue-status.state-notWaiting .queue-status-txt {
   color: #6b7280;
 }
 
@@ -250,6 +290,16 @@
   color: #0f766e;
   padding: 0 8rpx;
   line-height: 1.05;
+}
+
+/* 「1小时以上」：与「约」「分钟」同灰色，加粗区分 */
+.wait-long-wait {
+  display: block;
+  text-align: center;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #475569;
+  line-height: 1.45;
 }
 
 .wait-single {
