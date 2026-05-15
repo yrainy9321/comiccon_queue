@@ -176,6 +176,40 @@ let queues = loadData('queues.json') || [];
 // 加载微信用户数据
 let wechatUsers = loadData('wechat_users.json') || {};
 
+/** 小程序用户：任一携带有效微信 Bearer 的 /api/wechat 请求刷新 lastRequestAt（内存即时；落盘节流） */
+const wechatLastRequestPersistAt = {};
+
+function touchWechatUserLastRequestAt(openid, opts) {
+  const forcePersist = opts && opts.forcePersist === true;
+  const oid = String(openid || '').trim();
+  if (!oid || oid.startsWith('temp_') || oid.startsWith('mock_')) return;
+  if (!wechatUsers[oid]) return;
+  const tsIso = new Date().toISOString();
+  wechatUsers[oid].lastRequestAt = tsIso;
+  if (forcePersist) {
+    wechatLastRequestPersistAt[oid] = Date.now();
+    saveData('wechat_users.json', wechatUsers);
+    return;
+  }
+  const now = Date.now();
+  const last = wechatLastRequestPersistAt[oid] || 0;
+  if (now - last < 10_000) return;
+  wechatLastRequestPersistAt[oid] = now;
+  saveData('wechat_users.json', wechatUsers);
+}
+
+app.use((req, res, next) => {
+  const pathOnly = (req.originalUrl || req.url || '').split('?')[0];
+  if (!pathOnly.startsWith('/api/wechat')) return next();
+  if (pathOnly === '/api/wechat/login' && req.method === 'POST') return next();
+  const token = readBearerToken(req);
+  if (!token) return next();
+  const user = Object.values(wechatUsers).find((u) => u && u.token === token);
+  if (!user || !user.openid) return next();
+  touchWechatUserLastRequestAt(user.openid);
+  next();
+});
+
 // 加载手环与openid的绑定关系 (braceletId -> openid)
 let braceletBindings = loadData('bracelet_bindings.json') || {};
 
@@ -1909,17 +1943,22 @@ app.post('/api/wechat/login', async (req, res) => {
       });
     }
 
+    const loginAt = new Date();
+    const loginAtIso = loginAt.toISOString();
+
     // 保存用户信息到本地（首次登录时创建）
     if (!wechatUsers[openid]) {
       wechatUsers[openid] = {
         openid,
         unionid: unionid || null,
-        createdAt: new Date(),
-        lastLoginAt: new Date()
+        createdAt: loginAt,
+        lastLoginAt: loginAt,
+        lastRequestAt: loginAtIso
       };
       saveData('wechat_users.json', wechatUsers);
     } else {
-      wechatUsers[openid].lastLoginAt = new Date();
+      wechatUsers[openid].lastLoginAt = loginAt;
+      wechatUsers[openid].lastRequestAt = loginAtIso;
       // 更新unionid（如果有）
       if (unionid) {
         wechatUsers[openid].unionid = unionid;
@@ -2078,7 +2117,8 @@ app.post('/api/wechat/user-info', (req, res) => {
       unionid: unionid || null,
       token,
       createdAt: new Date(),
-      lastLoginAt: new Date()
+      lastLoginAt: new Date(),
+      lastRequestAt: new Date().toISOString()
     };
     user = wechatUsers[newOpenid];
   }
@@ -2152,7 +2192,8 @@ app.get('/api/wechat/user', (req, res) => {
     avatarDisplayUrl: computeAvatarDisplayUrlForRequest(req, storedAvatar),
     isStaff: !!user.isStaff,
     createdAt: user.createdAt,
-    lastLoginAt: user.lastLoginAt
+    lastLoginAt: user.lastLoginAt,
+    lastRequestAt: user.lastRequestAt || null
   });
 });
 
@@ -2210,7 +2251,14 @@ app.get('/api/wechat/users', (req, res) => {
     return res.status(401).json({ error: '未授权' });
   }
 
-  const { nickname, openid, page = 1, pageSize = 10 } = req.query;
+  const {
+    nickname,
+    openid,
+    page = 1,
+    pageSize = 10,
+    sortBy = 'createdAt',
+    sortOrder = 'desc'
+  } = req.query;
 
   // 构建用户列表，包含活动参与统计
   let userList = Object.values(wechatUsers).map(user => {
@@ -2226,6 +2274,7 @@ app.get('/api/wechat/users', (req, res) => {
       isStaff: user.isStaff || false,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
+      lastRequestAt: user.lastRequestAt || null,
       activityCount: uniqueActivities.length,
       bindingCount: userBindings.length
     };
@@ -2244,8 +2293,41 @@ app.get('/api/wechat/users', (req, res) => {
     );
   }
 
-  // 按创建时间降序排列，最近的在最前面
-  userList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const sortKeys = new Set([
+    'createdAt',
+    'lastLoginAt',
+    'lastRequestAt',
+    'nickName',
+    'openid',
+    'activityCount',
+    'bindingCount',
+    'isStaff'
+  ]);
+  const key = sortKeys.has(String(sortBy)) ? String(sortBy) : 'createdAt';
+  const dir = String(sortOrder).toLowerCase() === 'asc' ? 1 : -1;
+
+  function lastRequestSortMs(u) {
+    const t1 = u.lastRequestAt ? new Date(u.lastRequestAt).getTime() : NaN;
+    if (Number.isFinite(t1)) return t1;
+    const t2 = u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : NaN;
+    return Number.isFinite(t2) ? t2 : 0;
+  }
+
+  userList.sort((a, b) => {
+    let cmp = 0;
+    if (key === 'nickName' || key === 'openid') {
+      cmp = String(a[key] || '').localeCompare(String(b[key] || ''), 'zh-CN');
+    } else if (key === 'activityCount' || key === 'bindingCount') {
+      cmp = (Number(a[key]) || 0) - (Number(b[key]) || 0);
+    } else if (key === 'isStaff') {
+      cmp = (a.isStaff === b.isStaff ? 0 : a.isStaff ? 1 : -1);
+    } else if (key === 'lastRequestAt' || key === 'lastLoginAt') {
+      cmp = lastRequestSortMs(a) - lastRequestSortMs(b);
+    } else {
+      cmp = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+    }
+    return cmp * dir;
+  });
 
   // 分页处理
   const total = userList.length;
@@ -2962,7 +3044,8 @@ app.get('/api/wechat/user/:openid/activities', (req, res) => {
     user: {
       openid: user.openid,
       createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt
+      lastLoginAt: user.lastLoginAt,
+      lastRequestAt: user.lastRequestAt || null
     },
     asCustomer,
     asStaff,

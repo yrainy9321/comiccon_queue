@@ -2665,7 +2665,7 @@
                 <th class="sortable-th" data-sort="openid"><span>OpenID</span><span class="admin-th-sort"></span></th>
                 <th>UnionID</th>
                 <th class="sortable-th" data-sort="createdAt"><span>创建时间</span><span class="admin-th-sort"></span></th>
-                <th class="sortable-th" data-sort="lastLoginAt"><span>最后登录</span><span class="admin-th-sort"></span></th>
+                <th class="sortable-th" data-sort="lastRequestAt"><span>最后请求</span><span class="admin-th-sort"></span></th>
                 <th class="sortable-th" data-sort="activityCount"><span>活动数量</span><span class="admin-th-sort"></span></th>
                 <th class="sortable-th" data-sort="bindingCount"><span>绑定数量</span><span class="admin-th-sort"></span></th>
                 <th class="sortable-th" data-sort="isStaff"><span>员工状态</span><span class="admin-th-sort"></span></th>
@@ -2694,7 +2694,7 @@
             <td title="${user.openid}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.openid}</td>
             <td title="${user.unionid || ''}" style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${user.unionid || '-'}</td>
             <td>${user.createdAt ? new Date(user.createdAt).toLocaleString() : '-'}</td>
-            <td>${user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</td>
+            <td>${(user.lastRequestAt || user.lastLoginAt) ? new Date(user.lastRequestAt || user.lastLoginAt).toLocaleString() : '-'}</td>
             <td>${user.activityCount || 0}</td>
             <td>${user.bindingCount || 0}</td>
             <td>${user.isStaff ? '<span class="tag tag-green">是</span>' : '<span class="tag tag-gray">否</span>'}</td>
@@ -2947,7 +2947,7 @@
           wechatSortBy = col;
           if (
             col === 'createdAt' ||
-            col === 'lastLoginAt' ||
+            col === 'lastRequestAt' ||
             col === 'activityCount' ||
             col === 'bindingCount' ||
             col === 'isStaff'
